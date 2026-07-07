@@ -22,6 +22,7 @@ import com.videocharter.service.RateLimiterService;
 import com.videocharter.service.SessionService;
 import com.videocharter.service.SessionService.ExpectedInput;
 import com.videocharter.service.SessionService.UserSession;
+import com.videocharter.service.SessionService.UserSession.ProfileScreenContext;
 import com.videocharter.ui.UiFactory;
 import com.videocharter.ui.UiFactory.ButtonSpec;
 import com.videocharter.util.Htmls;
@@ -37,11 +38,11 @@ import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.AnswerPreCheckoutQuery;
 import org.telegram.telegrambots.meta.api.methods.ParseMode;
 import org.telegram.telegrambots.meta.api.methods.invoices.SendInvoice;
-import org.telegram.telegrambots.meta.api.methods.send.SendMediaGroup;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
 import org.telegram.telegrambots.meta.api.methods.send.SendVideo;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage;
+import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageMedia;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.objects.InputFile;
@@ -152,6 +153,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             session.setExpectedInput(ExpectedInput.NONE);
             session.setDraft(null);
             session.resetReportDraft();
+            session.resetProfileScreen();
             cleanupCardMessages(message.getChatId(), session);
             deleteIncomingMessage(message);
             openHome(message.getChatId(), account, session, null);
@@ -377,6 +379,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             session.setExpectedInput(ExpectedInput.NONE);
             session.setDraft(null);
             session.resetReportDraft();
+            session.resetProfileScreen();
             cleanupCardMessages(callbackQuery.getMessage().getChatId(), session);
             openHome(callbackQuery.getMessage().getChatId(), account, session, null);
             return;
@@ -449,6 +452,12 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         if (data.startsWith("wizard:")) {
             answerCallback(callbackQuery, null);
             handleWizardCallback(callbackQuery.getMessage().getChatId(), session, account, data);
+            return;
+        }
+
+        if (data.startsWith("media:")) {
+            answerCallback(callbackQuery, null);
+            handleProfileMediaCallback(callbackQuery.getMessage().getChatId(), session, account, data);
             return;
         }
 
@@ -596,6 +605,98 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             return;
         }
         renderWizard(chatId, session, null);
+    }
+
+    private void handleProfileMediaCallback(long chatId, UserSession session, UserAccount account, String data) {
+        Long profileUserId = session.getCurrentScreenProfileUserId();
+        ProfileScreenContext context = session.getProfileScreenContext();
+        if (profileUserId == null || context == ProfileScreenContext.NONE) {
+            openHome(chatId, account, session, "The current card is no longer active.");
+            return;
+        }
+
+        UserProfile profile = profileService.getProfile(profileUserId);
+        if (profile == null || profile.getMedia() == null || profile.getMedia().size() <= 1) {
+            rerenderProfileContext(chatId, session, account);
+            return;
+        }
+
+        int mediaCount = profile.getMedia().size();
+        int currentIndex = Math.max(0, Math.min(session.getCurrentMediaIndex(), mediaCount - 1));
+        if ("media:prev".equals(data)) {
+            session.setCurrentMediaIndex((currentIndex - 1 + mediaCount) % mediaCount);
+        } else if ("media:next".equals(data)) {
+            session.setCurrentMediaIndex((currentIndex + 1) % mediaCount);
+        }
+        rerenderProfileContext(chatId, session, account);
+    }
+
+    private void rerenderProfileContext(long chatId, UserSession session, UserAccount account) {
+        ProfileScreenContext context = session.getProfileScreenContext();
+        Long profileUserId = session.getCurrentScreenProfileUserId();
+        if (profileUserId == null || context == ProfileScreenContext.NONE) {
+            openHome(chatId, account, session, null);
+            return;
+        }
+
+        UserProfile profile = profileService.getProfile(profileUserId);
+        if (profile == null) {
+            openHome(chatId, account, session, "The profile is no longer available.");
+            return;
+        }
+
+        switch (context) {
+            case MY_PROFILE -> renderProfileScreen(
+                    chatId,
+                    session,
+                    profile,
+                    uiFactory.profileSummary(profile, true),
+                    keyboardMyProfile(),
+                    ProfileScreenContext.MY_PROFILE,
+                    true
+            );
+            case BROWSE -> renderProfileScreen(
+                    chatId,
+                    session,
+                    profile,
+                    uiFactory.browseCard(profile),
+                    keyboardBrowse(),
+                    ProfileScreenContext.BROWSE,
+                    true
+            );
+            case LIKES -> renderProfileScreen(
+                    chatId,
+                    session,
+                    profile,
+                    "<b>Someone likes you</b>\n\n" + uiFactory.browseCard(profile),
+                    keyboardLikes(),
+                    ProfileScreenContext.LIKES,
+                    true
+            );
+            case MODERATION_REPORT -> {
+                List<ProfileService.ModerationReportView> reports = profileService.getOpenReports();
+                if (reports.isEmpty()) {
+                    renderMenu(chatId, session, "<b>No open reports</b>\nEverything is clean right now.", keyboardModerationBack());
+                    return;
+                }
+                int normalized = Math.max(0, Math.min(session.getModerationIndex(), reports.size() - 1));
+                ProfileService.ModerationReportView view = reports.get(normalized);
+                if (view.target() == null) {
+                    renderMenu(chatId, session, uiFactory.moderationReportText(view.report(), view.reporter(), view.target()), keyboardReportModeration(view.report().getId(), normalized, reports.size()));
+                    return;
+                }
+                renderProfileScreen(
+                        chatId,
+                        session,
+                        view.target(),
+                        uiFactory.moderationReportText(view.report(), view.reporter(), view.target()),
+                        keyboardReportModeration(view.report().getId(), normalized, reports.size()),
+                        ProfileScreenContext.MODERATION_REPORT,
+                        true
+                );
+            }
+            case NONE -> openHome(chatId, account, session, null);
+        }
     }
 
     private void handleBrowseCallback(CallbackQuery callbackQuery, UserSession session, UserAccount account, String data) {
@@ -805,6 +906,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         session.setExpectedInput(ExpectedInput.NONE);
         session.resetReportDraft();
         session.setPendingSubscriptionPriceDays(null);
+        session.resetProfileScreen();
         boolean hasProfile = profileService.hasProfile(account.getUserId());
         int likesCount = profileService.countIncomingLikes(account.getUserId());
         boolean adsDisabled = profileService.hasActiveSubscription(account.getUserId(), LocalDate.now());
@@ -815,19 +917,20 @@ public class VideoCharterBot extends TelegramLongPollingBot {
 
     private void openMyProfile(long chatId, UserSession session, UserAccount account) {
         cleanupCardMessages(chatId, session);
+        session.resetProfileScreen();
         UserProfile profile = profileService.getProfile(account.getUserId());
         if (profile == null) {
             renderMenu(chatId, session, "<b>No profile yet</b>\nCreate one to start browsing.", keyboardNoProfile());
             return;
         }
-        sendProfileMedia(chatId, session, profile);
-        renderMenu(chatId, session, uiFactory.profileSummary(profile, true), keyboardMyProfile());
+        renderProfileScreen(chatId, session, profile, uiFactory.profileSummary(profile, true), keyboardMyProfile(), ProfileScreenContext.MY_PROFILE, false);
     }
 
     private void startWizard(long chatId, UserSession session, UserProfile currentProfile) {
         cleanupCardMessages(chatId, session);
         session.resetReportDraft();
         session.setExpectedInput(ExpectedInput.NONE);
+        session.resetProfileScreen();
         session.setDraft(currentProfile == null ? ProfileDraft.empty() : ProfileDraft.fromProfile(currentProfile));
         session.getDraft().setStep(ProfileDraft.WizardStep.GENDER);
         renderWizard(chatId, session, "Let’s build your profile.");
@@ -939,8 +1042,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         }
         session.setCurrentBrowseProfileId(profile.getUserId());
         session.getSeenProfileIds().add(profile.getUserId());
-        sendProfileMedia(chatId, session, profile);
-        renderMenu(chatId, session, uiFactory.browseCard(profile), keyboardBrowse());
+        renderProfileScreen(chatId, session, profile, uiFactory.browseCard(profile), keyboardBrowse(), ProfileScreenContext.BROWSE, false);
     }
 
     private void openLikes(long chatId, UserSession session, UserAccount account) {
@@ -956,8 +1058,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         }
         UserProfile profile = incomingLikes.getFirst();
         session.setCurrentBrowseProfileId(profile.getUserId());
-        sendProfileMedia(chatId, session, profile);
-        renderMenu(chatId, session, "<b>Someone likes you</b>\n\n" + uiFactory.browseCard(profile), keyboardLikes());
+        renderProfileScreen(chatId, session, profile, "<b>Someone likes you</b>\n\n" + uiFactory.browseCard(profile), keyboardLikes(), ProfileScreenContext.LIKES, false);
     }
 
     private void renderReportReason(long chatId, UserSession session) {
@@ -987,6 +1088,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
     }
 
     private void openSubscription(long chatId, UserSession session, UserAccount account, String notice) {
+        session.resetProfileScreen();
         SubscriptionPricing pricing = profileService.getSubscriptionPricing();
         String text = notice == null
                 ? uiFactory.subscriptionText(account, pricing)
@@ -1018,6 +1120,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             openHome(chatId, account, session, "Moderation access is unavailable.");
             return;
         }
+        session.resetProfileScreen();
         List<ProfileService.ModerationReportView> reports = profileService.getOpenReports();
         StringBuilder builder = new StringBuilder();
         if (notice != null) {
@@ -1038,6 +1141,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             openModerationHome(chatId, session, account, "Only admins can open the admin overview.");
             return;
         }
+        session.resetProfileScreen();
         String text = uiFactory.adminOverviewText(
                 profileService.getTotalUsersCount(),
                 profileService.getTotalProfilesCount(),
@@ -1052,6 +1156,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             openModerationHome(chatId, session, account, "Only admins can change subscription pricing.");
             return;
         }
+        session.resetProfileScreen();
         if (session.getPendingSubscriptionPriceDays() == null) {
             session.setExpectedInput(ExpectedInput.NONE);
         }
@@ -1063,6 +1168,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             renderMenu(chatId, session, "<b>Access denied</b>\nOnly admins can view active subscriptions.", keyboardModerationBack());
             return;
         }
+        session.resetProfileScreen();
         List<SubscriptionView> subscriptions = profileService.getActiveSubscriptions(LocalDate.now());
         if (subscriptions.isEmpty()) {
             renderMenu(chatId, session, "<b>Active subscriptions</b>\nNo active subscriptions right now.", keyboardAdminSubscriptionsEmpty());
@@ -1083,6 +1189,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
 
     private void openModerationReport(long chatId, UserSession session, int index) {
         cleanupCardMessages(chatId, session);
+        session.resetProfileScreen();
         List<ProfileService.ModerationReportView> reports = profileService.getOpenReports();
         if (reports.isEmpty()) {
             renderMenu(chatId, session, "<b>No open reports</b>\nEverything is clean right now.", keyboardModerationBack());
@@ -1092,7 +1199,16 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         session.setModerationIndex(normalized);
         ProfileService.ModerationReportView view = reports.get(normalized);
         if (view.target() != null) {
-            sendProfileMedia(chatId, session, view.target());
+            renderProfileScreen(
+                    chatId,
+                    session,
+                    view.target(),
+                    uiFactory.moderationReportText(view.report(), view.reporter(), view.target()),
+                    keyboardReportModeration(view.report().getId(), normalized, reports.size()),
+                    ProfileScreenContext.MODERATION_REPORT,
+                    false
+            );
+            return;
         }
         renderMenu(chatId, session, uiFactory.moderationReportText(view.report(), view.reporter(), view.target()), keyboardReportModeration(view.report().getId(), normalized, reports.size()));
     }
@@ -1156,23 +1272,40 @@ public class VideoCharterBot extends TelegramLongPollingBot {
     }
 
     private void renderMenu(long chatId, UserSession session, String text, InlineKeyboardMarkup keyboard) {
+        renderTextScreen(chatId, session, text, keyboard);
+    }
+
+    private void renderTextScreen(long chatId, UserSession session, String text, InlineKeyboardMarkup keyboard) {
         Integer previousMessageId = session.getMenuMessageId();
-        if (session.getMenuMessageId() != null) {
+        Integer targetMessageId = previousMessageId;
+
+        if (targetMessageId != null && session.getScreenKind() != UserSession.ScreenKind.TEXT) {
+            deleteMessageSilently(chatId, targetMessageId);
+            targetMessageId = null;
+            session.setMenuMessageId(null);
+        }
+
+        if (targetMessageId != null) {
             EditMessageText edit = new EditMessageText();
             edit.setChatId(chatId);
-            edit.setMessageId(session.getMenuMessageId());
+            edit.setMessageId(targetMessageId);
             edit.setText(text);
             edit.setParseMode(ParseMode.HTML);
             edit.setReplyMarkup(keyboard);
             try {
                 execute(edit);
+                session.setMenuMessageId(targetMessageId);
+                session.setScreenKind(UserSession.ScreenKind.TEXT);
                 return;
             } catch (TelegramApiException exception) {
-                if (exception.getMessage() != null && exception.getMessage().contains("message is not modified")) {
+                if (isMessageNotModified(exception)) {
+                    session.setMenuMessageId(targetMessageId);
+                    session.setScreenKind(UserSession.ScreenKind.TEXT);
                     return;
                 }
             }
         }
+
         SendMessage message = new SendMessage();
         message.setChatId(chatId);
         message.setParseMode(ParseMode.HTML);
@@ -1181,7 +1314,8 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         try {
             Message sent = execute(message);
             session.setMenuMessageId(sent.getMessageId());
-            if (previousMessageId != null && previousMessageId != sent.getMessageId()) {
+            session.setScreenKind(UserSession.ScreenKind.TEXT);
+            if (previousMessageId != null && !previousMessageId.equals(sent.getMessageId())) {
                 deleteMessageSilently(chatId, previousMessageId);
             }
         } catch (TelegramApiException exception) {
@@ -1189,52 +1323,151 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         }
     }
 
-    private void sendProfileMedia(long chatId, UserSession session, UserProfile profile) {
+    private void renderProfileScreen(
+            long chatId,
+            UserSession session,
+            UserProfile profile,
+            String caption,
+            InlineKeyboardMarkup keyboard,
+            ProfileScreenContext context,
+            boolean preserveMediaIndex
+    ) {
         List<MediaAttachment> media = profile.getMedia();
+        if (!preserveMediaIndex
+                || session.getProfileScreenContext() != context
+                || !Objects.equals(session.getCurrentScreenProfileUserId(), profile.getUserId())) {
+            session.setCurrentMediaIndex(0);
+        }
+        session.setProfileScreenContext(context);
+        session.setCurrentScreenProfileUserId(profile.getUserId());
+
         if (media == null || media.isEmpty()) {
+            session.setScreenKind(UserSession.ScreenKind.TEXT);
+            renderTextScreen(chatId, session, caption, keyboard);
             return;
         }
-        try {
-            if (media.size() == 1) {
-                MediaAttachment attachment = media.getFirst();
-                if (attachment.getType() == MediaType.PHOTO) {
-                    SendPhoto sendPhoto = new SendPhoto();
-                    sendPhoto.setChatId(chatId);
-                    sendPhoto.setPhoto(new InputFile(attachment.getFileId()));
-                    Message sent = execute(sendPhoto);
-                    session.getActiveCardMessageIds().add(sent.getMessageId());
-                } else {
-                    SendVideo sendVideo = new SendVideo();
-                    sendVideo.setChatId(chatId);
-                    sendVideo.setVideo(new InputFile(attachment.getFileId()));
-                    Message sent = execute(sendVideo);
-                    session.getActiveCardMessageIds().add(sent.getMessageId());
-                }
-                return;
-            }
 
-            SendMediaGroup mediaGroup = new SendMediaGroup();
-            mediaGroup.setChatId(chatId);
-            List<InputMedia> items = new ArrayList<>();
-            for (MediaAttachment attachment : media) {
-                if (attachment.getType() == MediaType.PHOTO) {
-                    InputMediaPhoto photo = new InputMediaPhoto();
-                    photo.setMedia(attachment.getFileId());
-                    items.add(photo);
-                } else {
-                    InputMediaVideo video = new InputMediaVideo();
-                    video.setMedia(attachment.getFileId());
-                    items.add(video);
+        int mediaIndex = Math.max(0, Math.min(session.getCurrentMediaIndex(), media.size() - 1));
+        session.setCurrentMediaIndex(mediaIndex);
+        MediaAttachment primaryMedia = media.get(mediaIndex);
+        String fullCaption = media.size() > 1
+                ? caption + "\n\nMedia: <b>" + (mediaIndex + 1) + "/" + media.size() + "</b>"
+                : caption;
+        InlineKeyboardMarkup decoratedKeyboard = withMediaNavigation(keyboard, mediaIndex, media.size());
+        Integer previousMessageId = session.getMenuMessageId();
+        Integer targetMessageId = previousMessageId;
+
+        if (targetMessageId != null && session.getScreenKind() == UserSession.ScreenKind.TEXT) {
+            deleteMessageSilently(chatId, targetMessageId);
+            targetMessageId = null;
+            session.setMenuMessageId(null);
+        }
+
+        if (targetMessageId != null) {
+            EditMessageMedia edit = new EditMessageMedia();
+            edit.setChatId(chatId);
+            edit.setMessageId(targetMessageId);
+            edit.setReplyMarkup(decoratedKeyboard);
+            edit.setMedia(buildInputMedia(primaryMedia, trimCaption(fullCaption)));
+            try {
+                execute(edit);
+                session.setMenuMessageId(targetMessageId);
+                session.setScreenKind(primaryMedia.getType() == MediaType.PHOTO
+                        ? UserSession.ScreenKind.PHOTO
+                        : UserSession.ScreenKind.VIDEO);
+                return;
+            } catch (TelegramApiException exception) {
+                if (isMessageNotModified(exception)) {
+                    session.setMenuMessageId(targetMessageId);
+                    session.setScreenKind(primaryMedia.getType() == MediaType.PHOTO
+                            ? UserSession.ScreenKind.PHOTO
+                            : UserSession.ScreenKind.VIDEO);
+                    return;
                 }
             }
-            mediaGroup.setMedias(items);
-            List<Message> sent = execute(mediaGroup);
-            for (Message sentMessage : sent) {
-                session.getActiveCardMessageIds().add(sentMessage.getMessageId());
+        }
+
+        try {
+            Message sent;
+            if (primaryMedia.getType() == MediaType.PHOTO) {
+                SendPhoto sendPhoto = new SendPhoto();
+                sendPhoto.setChatId(chatId);
+                sendPhoto.setPhoto(new InputFile(primaryMedia.getFileId()));
+                sendPhoto.setCaption(trimCaption(fullCaption));
+                sendPhoto.setParseMode(ParseMode.HTML);
+                sendPhoto.setReplyMarkup(decoratedKeyboard);
+                sent = execute(sendPhoto);
+            } else {
+                SendVideo sendVideo = new SendVideo();
+                sendVideo.setChatId(chatId);
+                sendVideo.setVideo(new InputFile(primaryMedia.getFileId()));
+                sendVideo.setCaption(trimCaption(fullCaption));
+                sendVideo.setParseMode(ParseMode.HTML);
+                sendVideo.setReplyMarkup(decoratedKeyboard);
+                sent = execute(sendVideo);
+            }
+            session.setMenuMessageId(sent.getMessageId());
+            session.setScreenKind(primaryMedia.getType() == MediaType.PHOTO
+                    ? UserSession.ScreenKind.PHOTO
+                    : UserSession.ScreenKind.VIDEO);
+            if (previousMessageId != null && !previousMessageId.equals(sent.getMessageId())) {
+                deleteMessageSilently(chatId, previousMessageId);
             }
         } catch (TelegramApiException exception) {
-            throw new IllegalStateException("Unable to send media", exception);
+            renderTextScreen(chatId, session, caption, decoratedKeyboard);
         }
+    }
+
+    private InlineKeyboardMarkup withMediaNavigation(InlineKeyboardMarkup keyboard, int mediaIndex, int mediaCount) {
+        if (mediaCount <= 1) {
+            return keyboard;
+        }
+
+        List<List<org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton>> rows = new ArrayList<>();
+        List<org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton> navRow = new ArrayList<>();
+        navRow.add(inlineCallbackButton("◀", "media:prev"));
+        navRow.add(inlineCallbackButton((mediaIndex + 1) + "/" + mediaCount, "noop"));
+        navRow.add(inlineCallbackButton("▶", "media:next"));
+        rows.add(navRow);
+
+        if (keyboard != null && keyboard.getKeyboard() != null) {
+            rows.addAll(keyboard.getKeyboard());
+        }
+
+        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
+        markup.setKeyboard(rows);
+        return markup;
+    }
+
+    private org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton inlineCallbackButton(String text, String data) {
+        org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton button =
+                new org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton();
+        button.setText(text);
+        button.setCallbackData(data);
+        return button;
+    }
+
+    private InputMedia buildInputMedia(MediaAttachment attachment, String caption) {
+        if (attachment.getType() == MediaType.PHOTO) {
+            InputMediaPhoto photo = new InputMediaPhoto();
+            photo.setMedia(attachment.getFileId());
+            photo.setCaption(caption);
+            photo.setParseMode(ParseMode.HTML);
+            return photo;
+        }
+        InputMediaVideo video = new InputMediaVideo();
+        video.setMedia(attachment.getFileId());
+        video.setCaption(caption);
+        video.setParseMode(ParseMode.HTML);
+        return video;
+    }
+
+    private String trimCaption(String value) {
+        if (value == null) {
+            return "";
+        }
+        final int maxCaptionLength = 1024;
+        return value.length() <= maxCaptionLength ? value : value.substring(0, maxCaptionLength - 1) + "…";
     }
 
     private void cleanupCardMessages(long chatId, UserSession session) {
@@ -1270,6 +1503,13 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             execute(answer);
         } catch (TelegramApiException ignored) {
         }
+    }
+
+    private boolean isMessageNotModified(TelegramApiException exception) {
+        if (exception == null || exception.getMessage() == null) {
+            return false;
+        }
+        return exception.getMessage().toLowerCase().contains("message is not modified");
     }
 
     private PhotoSize largestPhoto(List<PhotoSize> sizes) {

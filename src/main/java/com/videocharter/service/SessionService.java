@@ -27,7 +27,25 @@ public class SessionService {
     }
 
     public static class UserSession {
+        public enum ScreenKind {
+            TEXT,
+            PHOTO,
+            VIDEO
+        }
+
+        public enum ProfileScreenContext {
+            NONE,
+            MY_PROFILE,
+            BROWSE,
+            LIKES,
+            MODERATION_REPORT
+        }
+
         private Integer menuMessageId;
+        private ScreenKind screenKind = ScreenKind.TEXT;
+        private ProfileScreenContext profileScreenContext = ProfileScreenContext.NONE;
+        private Long currentScreenProfileUserId;
+        private int currentMediaIndex;
         private final List<Integer> activeCardMessageIds = new ArrayList<>();
         private final Deque<Long> browseHistory = new ArrayDeque<>();
         private final Set<Long> seenProfileIds = new HashSet<>();
@@ -51,6 +69,38 @@ public class SessionService {
 
         public void setMenuMessageId(Integer menuMessageId) {
             this.menuMessageId = menuMessageId;
+        }
+
+        public ScreenKind getScreenKind() {
+            return screenKind;
+        }
+
+        public void setScreenKind(ScreenKind screenKind) {
+            this.screenKind = screenKind;
+        }
+
+        public ProfileScreenContext getProfileScreenContext() {
+            return profileScreenContext;
+        }
+
+        public void setProfileScreenContext(ProfileScreenContext profileScreenContext) {
+            this.profileScreenContext = profileScreenContext;
+        }
+
+        public Long getCurrentScreenProfileUserId() {
+            return currentScreenProfileUserId;
+        }
+
+        public void setCurrentScreenProfileUserId(Long currentScreenProfileUserId) {
+            this.currentScreenProfileUserId = currentScreenProfileUserId;
+        }
+
+        public int getCurrentMediaIndex() {
+            return currentMediaIndex;
+        }
+
+        public void setCurrentMediaIndex(int currentMediaIndex) {
+            this.currentMediaIndex = currentMediaIndex;
         }
 
         public List<Integer> getActiveCardMessageIds() {
@@ -182,6 +232,13 @@ public class SessionService {
             seenProfileIds.clear();
             currentBrowseProfileId = null;
             pendingProfileAfterAd = null;
+        }
+
+        public void resetProfileScreen() {
+            profileScreenContext = ProfileScreenContext.NONE;
+            currentScreenProfileUserId = null;
+            currentMediaIndex = 0;
+            screenKind = ScreenKind.TEXT;
         }
     }
 
