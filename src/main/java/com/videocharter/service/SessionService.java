@@ -1,0 +1,193 @@
+package com.videocharter.service;
+
+import com.videocharter.model.DomainEnums.ReportReason;
+import com.videocharter.model.ProfileDraft;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Deque;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
+
+public class SessionService {
+
+    public enum ExpectedInput {
+        NONE,
+        NAME,
+        AGE,
+        AGE_RANGE,
+        MEDIA_PHOTO,
+        MEDIA_VIDEO,
+        REPORT_EVIDENCE,
+        ADD_MODERATOR_ID,
+        REMOVE_MODERATOR_ID,
+        SUBSCRIPTION_PRICE
+    }
+
+    public static class UserSession {
+        private Integer menuMessageId;
+        private final List<Integer> activeCardMessageIds = new ArrayList<>();
+        private final Deque<Long> browseHistory = new ArrayDeque<>();
+        private final Set<Long> seenProfileIds = new HashSet<>();
+        private ProfileDraft draft;
+        private ExpectedInput expectedInput = ExpectedInput.NONE;
+        private int countryPage;
+        private Long currentBrowseProfileId;
+        private Long pendingProfileAfterAd;
+        private Long reportTargetUserId;
+        private ReportReason reportReason;
+        private String reportEvidenceText;
+        private String reportEvidenceFileId;
+        private String reportEvidenceFileType;
+        private int moderationIndex;
+        private int subscriptionsPage;
+        private Integer pendingSubscriptionPriceDays;
+
+        public Integer getMenuMessageId() {
+            return menuMessageId;
+        }
+
+        public void setMenuMessageId(Integer menuMessageId) {
+            this.menuMessageId = menuMessageId;
+        }
+
+        public List<Integer> getActiveCardMessageIds() {
+            return activeCardMessageIds;
+        }
+
+        public Deque<Long> getBrowseHistory() {
+            return browseHistory;
+        }
+
+        public Set<Long> getSeenProfileIds() {
+            return seenProfileIds;
+        }
+
+        public ProfileDraft getDraft() {
+            return draft;
+        }
+
+        public void setDraft(ProfileDraft draft) {
+            this.draft = draft;
+        }
+
+        public ExpectedInput getExpectedInput() {
+            return expectedInput;
+        }
+
+        public void setExpectedInput(ExpectedInput expectedInput) {
+            this.expectedInput = expectedInput;
+        }
+
+        public int getCountryPage() {
+            return countryPage;
+        }
+
+        public void setCountryPage(int countryPage) {
+            this.countryPage = countryPage;
+        }
+
+        public Long getCurrentBrowseProfileId() {
+            return currentBrowseProfileId;
+        }
+
+        public void setCurrentBrowseProfileId(Long currentBrowseProfileId) {
+            this.currentBrowseProfileId = currentBrowseProfileId;
+        }
+
+        public Long getPendingProfileAfterAd() {
+            return pendingProfileAfterAd;
+        }
+
+        public void setPendingProfileAfterAd(Long pendingProfileAfterAd) {
+            this.pendingProfileAfterAd = pendingProfileAfterAd;
+        }
+
+        public Long getReportTargetUserId() {
+            return reportTargetUserId;
+        }
+
+        public void setReportTargetUserId(Long reportTargetUserId) {
+            this.reportTargetUserId = reportTargetUserId;
+        }
+
+        public ReportReason getReportReason() {
+            return reportReason;
+        }
+
+        public void setReportReason(ReportReason reportReason) {
+            this.reportReason = reportReason;
+        }
+
+        public String getReportEvidenceText() {
+            return reportEvidenceText;
+        }
+
+        public void setReportEvidenceText(String reportEvidenceText) {
+            this.reportEvidenceText = reportEvidenceText;
+        }
+
+        public String getReportEvidenceFileId() {
+            return reportEvidenceFileId;
+        }
+
+        public void setReportEvidenceFileId(String reportEvidenceFileId) {
+            this.reportEvidenceFileId = reportEvidenceFileId;
+        }
+
+        public String getReportEvidenceFileType() {
+            return reportEvidenceFileType;
+        }
+
+        public void setReportEvidenceFileType(String reportEvidenceFileType) {
+            this.reportEvidenceFileType = reportEvidenceFileType;
+        }
+
+        public int getModerationIndex() {
+            return moderationIndex;
+        }
+
+        public void setModerationIndex(int moderationIndex) {
+            this.moderationIndex = moderationIndex;
+        }
+
+        public int getSubscriptionsPage() {
+            return subscriptionsPage;
+        }
+
+        public void setSubscriptionsPage(int subscriptionsPage) {
+            this.subscriptionsPage = subscriptionsPage;
+        }
+
+        public Integer getPendingSubscriptionPriceDays() {
+            return pendingSubscriptionPriceDays;
+        }
+
+        public void setPendingSubscriptionPriceDays(Integer pendingSubscriptionPriceDays) {
+            this.pendingSubscriptionPriceDays = pendingSubscriptionPriceDays;
+        }
+
+        public void resetReportDraft() {
+            reportTargetUserId = null;
+            reportReason = null;
+            reportEvidenceText = null;
+            reportEvidenceFileId = null;
+            reportEvidenceFileType = null;
+        }
+
+        public void resetBrowsing() {
+            browseHistory.clear();
+            seenProfileIds.clear();
+            currentBrowseProfileId = null;
+            pendingProfileAfterAd = null;
+        }
+    }
+
+    private final ConcurrentMap<Long, UserSession> sessions = new ConcurrentHashMap<>();
+
+    public UserSession get(long userId) {
+        return sessions.computeIfAbsent(userId, ignored -> new UserSession());
+    }
+}
