@@ -188,6 +188,8 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             case MEDIA_PHOTO -> handlePhotoInput(message, session, account);
             case MEDIA_VIDEO -> handleVideoInput(message, session, account);
             case REPORT_EVIDENCE -> handleReportEvidenceInput(message, session, account);
+            case ADD_ADMIN_ID -> handleAdminInput(message, session, true, account);
+            case REMOVE_ADMIN_ID -> handleAdminInput(message, session, false, account);
             case ADD_MODERATOR_ID -> handleModeratorInput(message, session, true, account);
             case REMOVE_MODERATOR_ID -> handleModeratorInput(message, session, false, account);
             case SUBSCRIPTION_PRICE -> handleSubscriptionPriceInput(message, session, account);
@@ -244,7 +246,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         int min = Integer.parseInt(matcher.group(1));
         int max = Integer.parseInt(matcher.group(2));
         if (min < 18 || max > 80 || min > max) {
-            renderWizard(message.getChatId(), session, "Preferred age must stay within 18-80 and min must be <= max.");
+            renderWizard(message.getChatId(), session, "Preferred age must stay within 18-80 and the minimum must not be greater than the maximum.");
             return;
         }
         session.getDraft().setPreferredAgeMin(min);
@@ -324,8 +326,24 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             renderMenu(
                     message.getChatId(),
                     session,
-                    add ? "<b>Add moderator</b>\nSend a numeric Telegram user ID." : "<b>Remove moderator</b>\nSend a numeric Telegram user ID.",
+                    add ? "<b>🛡 Add moderator</b>\nSend a numeric Telegram user ID." : "<b>🛡 Remove moderator</b>\nSend a numeric Telegram user ID.",
                     keyboardModeratorInput(add)
+            );
+        }
+    }
+
+    private void handleAdminInput(Message message, UserSession session, boolean add, UserAccount account) {
+        try {
+            long userId = Long.parseLong(Objects.requireNonNullElse(message.getText(), "").trim());
+            profileService.setAdmin(userId, add);
+            session.setExpectedInput(ExpectedInput.NONE);
+            openModeratorManagement(message.getChatId(), session, account, add ? "Admin added." : "Admin removed.");
+        } catch (Exception ignored) {
+            renderMenu(
+                    message.getChatId(),
+                    session,
+                    add ? "<b>👑 Add admin</b>\nSend a numeric Telegram user ID." : "<b>👑 Remove admin</b>\nSend a numeric Telegram user ID.",
+                    keyboardAdminInput(add)
             );
         }
     }
@@ -643,7 +661,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
 
         UserProfile profile = profileService.getProfile(profileUserId);
         if (profile == null) {
-            openHome(chatId, account, session, "The profile is no longer available.");
+            openHome(chatId, account, session, "This profile is no longer available.");
             return;
         }
 
@@ -860,12 +878,22 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         }
         if ("mod:add".equals(data)) {
             session.setExpectedInput(ExpectedInput.ADD_MODERATOR_ID);
-            renderMenu(chatId, session, "<b>Add moderator</b>\nSend a numeric Telegram user ID.", keyboardModeratorInput(true));
+            renderMenu(chatId, session, "<b>🛡 Add moderator</b>\nSend a numeric Telegram user ID.", keyboardModeratorInput(true));
             return;
         }
         if ("mod:remove".equals(data)) {
             session.setExpectedInput(ExpectedInput.REMOVE_MODERATOR_ID);
-            renderMenu(chatId, session, "<b>Remove moderator</b>\nSend a numeric Telegram user ID.", keyboardModeratorInput(false));
+            renderMenu(chatId, session, "<b>🛡 Remove moderator</b>\nSend a numeric Telegram user ID.", keyboardModeratorInput(false));
+            return;
+        }
+        if ("mod:addAdmin".equals(data)) {
+            session.setExpectedInput(ExpectedInput.ADD_ADMIN_ID);
+            renderMenu(chatId, session, "<b>👑 Add admin</b>\nSend a numeric Telegram user ID.", keyboardAdminInput(true));
+            return;
+        }
+        if ("mod:removeAdmin".equals(data)) {
+            session.setExpectedInput(ExpectedInput.REMOVE_ADMIN_ID);
+            renderMenu(chatId, session, "<b>👑 Remove admin</b>\nSend a numeric Telegram user ID.", keyboardAdminInput(false));
             return;
         }
         if (data.startsWith("mod:report:")) {
@@ -1101,12 +1129,12 @@ public class VideoCharterBot extends TelegramLongPollingBot {
     private void sendSubscriptionInvoice(long chatId, int days) {
         SubscriptionPricing pricing = profileService.getSubscriptionPricing();
         int stars = days == 365 ? pricing.yearlyStars() : pricing.monthlyStars();
-        SendInvoice invoice = new SendInvoice();
+        SendInvoice invoice = new StarsInvoice();
         invoice.setChatId(chatId);
         invoice.setTitle("Disable ads");
         invoice.setDescription(days == 365 ? "Disable ads for 365 days." : "Disable ads for 30 days.");
         invoice.setPayload("subscription:" + days);
-        invoice.setProviderToken("");
+        invoice.setProviderToken(null);
         invoice.setCurrency("XTR");
         invoice.setStartParameter("videocharter-subscription");
         invoice.setPrices(List.of(new LabeledPrice("Ad-free plan", stars)));
@@ -1224,10 +1252,27 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         if (notice != null) {
             builder.append(notice).append("\n\n");
         }
-        builder.append("<b>Moderators</b>\n");
+        builder.append("<b>🧑‍⚖️ Team management</b>\n");
+        builder.append("Admins:\n");
+        List<UserAccount> admins = profileService.getAdmins();
+        if (admins.isEmpty() && config.adminIds().isEmpty()) {
+            builder.append("• No additional admins\n");
+        } else {
+            for (Long adminId : config.adminIds()) {
+                builder.append("• ").append(adminId).append(" — env admin\n");
+            }
+            for (UserAccount admin : admins) {
+                builder.append("• ").append(admin.getUserId());
+                if (admin.getFirstName() != null) {
+                    builder.append(" — ").append(Htmls.escape(admin.getFirstName()));
+                }
+                builder.append(" (saved admin)\n");
+            }
+        }
+        builder.append("\nModerators:\n");
         List<UserAccount> moderators = profileService.getModerators();
         if (moderators.isEmpty()) {
-            builder.append("No moderators assigned yet.");
+            builder.append("• No moderators assigned yet.");
         } else {
             for (UserAccount moderator : moderators) {
                 builder.append("• ").append(moderator.getUserId());
@@ -1529,40 +1574,40 @@ public class VideoCharterBot extends TelegramLongPollingBot {
     private InlineKeyboardMarkup keyboardHome(boolean hasProfile, boolean moderationEnabled) {
         List<List<ButtonSpec>> rows = new ArrayList<>();
         if (hasProfile) {
-            rows.add(List.of(ButtonSpec.callback("My profile", "menu:profile"), ButtonSpec.callback("Browse", "menu:search")));
-            rows.add(List.of(ButtonSpec.callback("Who likes me", "menu:likes"), ButtonSpec.callback("Disable ads", "menu:ads")));
+            rows.add(List.of(ButtonSpec.callback("👤 My profile", "menu:profile"), ButtonSpec.callback("🔎 Browse", "menu:search")));
+            rows.add(List.of(ButtonSpec.callback("💌 Who likes me", "menu:likes"), ButtonSpec.callback("💎 Disable ads", "menu:ads")));
         } else {
-            rows.add(List.of(ButtonSpec.callback("Create profile", "menu:create")));
-            rows.add(List.of(ButtonSpec.callback("Disable ads", "menu:ads")));
+            rows.add(List.of(ButtonSpec.callback("✨ Create profile", "menu:create")));
+            rows.add(List.of(ButtonSpec.callback("💎 Disable ads", "menu:ads")));
         }
         if (moderationEnabled) {
-            rows.add(List.of(ButtonSpec.callback("Moderation", "menu:moderation")));
+            rows.add(List.of(ButtonSpec.callback("🛡 Moderation", "menu:moderation")));
         }
         return uiFactory.keyboard(rows);
     }
 
     private InlineKeyboardMarkup keyboardNoProfile() {
         return uiFactory.keyboard(List.of(
-                List.of(ButtonSpec.callback("Create profile", "menu:create")),
-                List.of(ButtonSpec.callback("Home", "home"))
+                List.of(ButtonSpec.callback("✨ Create profile", "menu:create")),
+                List.of(ButtonSpec.callback("🏠 Home", "home"))
         ));
     }
 
     private InlineKeyboardMarkup keyboardHomeOnly() {
-        return uiFactory.keyboard(List.of(List.of(ButtonSpec.callback("Home", "home"))));
+        return uiFactory.keyboard(List.of(List.of(ButtonSpec.callback("🏠 Home", "home"))));
     }
 
     private InlineKeyboardMarkup keyboardMyProfile() {
         return uiFactory.keyboard(List.of(
-                List.of(ButtonSpec.callback("Rebuild profile", "profile:rebuild"), ButtonSpec.callback("Manage media", "profile:media")),
-                List.of(ButtonSpec.callback("Delete profile", "profile:delete"), ButtonSpec.callback("Home", "home"))
+                List.of(ButtonSpec.callback("✏️ Rebuild profile", "profile:rebuild"), ButtonSpec.callback("🖼 Manage media", "profile:media")),
+                List.of(ButtonSpec.callback("🗑 Delete profile", "profile:delete"), ButtonSpec.callback("🏠 Home", "home"))
         ));
     }
 
     private InlineKeyboardMarkup keyboardDeleteProfileConfirm() {
         return uiFactory.keyboard(List.of(
-                List.of(ButtonSpec.callback("Delete now", "profile:delete:confirm")),
-                List.of(ButtonSpec.callback("Cancel", "menu:profile"))
+                List.of(ButtonSpec.callback("🗑 Delete now", "profile:delete:confirm")),
+                List.of(ButtonSpec.callback("↩️ Cancel", "menu:profile"))
         ));
     }
 
@@ -1571,7 +1616,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
                 List.of(ButtonSpec.callback(mark(draft.getGender() == Gender.MALE, "Male"), "wizard:gender:MALE"),
                         ButtonSpec.callback(mark(draft.getGender() == Gender.FEMALE, "Female"), "wizard:gender:FEMALE")),
                 List.of(ButtonSpec.callback(mark(draft.getGender() == Gender.OTHER, "Other"), "wizard:gender:OTHER")),
-                List.of(ButtonSpec.callback("Cancel", "wizard:cancel"))
+                List.of(ButtonSpec.callback("↩️ Cancel", "wizard:cancel"))
         ));
     }
 
@@ -1580,7 +1625,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
                 List.of(ButtonSpec.callback(mark(draft.getLookingFor() == PartnerPreference.MEN, "Men"), "wizard:looking:MEN"),
                         ButtonSpec.callback(mark(draft.getLookingFor() == PartnerPreference.WOMEN, "Women"), "wizard:looking:WOMEN")),
                 List.of(ButtonSpec.callback(mark(draft.getLookingFor() == PartnerPreference.EVERYONE, "Everyone"), "wizard:looking:EVERYONE")),
-                List.of(ButtonSpec.callback("← Back", "wizard:back"), ButtonSpec.callback("Cancel", "wizard:cancel"))
+                List.of(ButtonSpec.callback("⬅️ Back", "wizard:back"), ButtonSpec.callback("↩️ Cancel", "wizard:cancel"))
         ));
     }
 
@@ -1590,7 +1635,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
                         ButtonSpec.callback(mark(draft.getGoal() == Goal.FRIENDSHIP, "Friendship"), "wizard:goal:FRIENDSHIP")),
                 List.of(ButtonSpec.callback(mark(draft.getGoal() == Goal.LANGUAGE_EXCHANGE, "Language exchange"), "wizard:goal:LANGUAGE_EXCHANGE")),
                 List.of(ButtonSpec.callback(mark(draft.getGoal() == Goal.NETWORKING, "Networking"), "wizard:goal:NETWORKING")),
-                List.of(ButtonSpec.callback("← Back", "wizard:back"), ButtonSpec.callback("Cancel", "wizard:cancel"))
+                List.of(ButtonSpec.callback("⬅️ Back", "wizard:back"), ButtonSpec.callback("↩️ Cancel", "wizard:cancel"))
         ));
     }
 
@@ -1598,13 +1643,13 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         return uiFactory.keyboard(List.of(
                 List.of(ButtonSpec.callback(mark(draft.getPrivacyMode() == PrivacyMode.OPEN, "Open"), "wizard:privacy:OPEN"),
                         ButtonSpec.callback(mark(draft.getPrivacyMode() == PrivacyMode.PRIVATE, "Private"), "wizard:privacy:PRIVATE")),
-                List.of(ButtonSpec.callback("← Back", "wizard:back"), ButtonSpec.callback("Cancel", "wizard:cancel"))
+                List.of(ButtonSpec.callback("⬅️ Back", "wizard:back"), ButtonSpec.callback("↩️ Cancel", "wizard:cancel"))
         ));
     }
 
     private InlineKeyboardMarkup keyboardWizardBack() {
         return uiFactory.keyboard(List.of(
-                List.of(ButtonSpec.callback("← Back", "wizard:back"), ButtonSpec.callback("Cancel", "wizard:cancel"))
+                List.of(ButtonSpec.callback("⬅️ Back", "wizard:back"), ButtonSpec.callback("↩️ Cancel", "wizard:cancel"))
         ));
     }
 
@@ -1612,98 +1657,98 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         List<List<ButtonSpec>> rows = new ArrayList<>();
         List<ButtonSpec> addRow = new ArrayList<>();
         if (draft.canAddPhoto()) {
-            addRow.add(ButtonSpec.callback("Add photo", "wizard:mediaPhoto"));
+            addRow.add(ButtonSpec.callback("📷 Add photo", "wizard:mediaPhoto"));
         }
         if (draft.canAddVideo()) {
-            addRow.add(ButtonSpec.callback("Add video", "wizard:mediaVideo"));
+            addRow.add(ButtonSpec.callback("🎥 Add video", "wizard:mediaVideo"));
         }
         if (!addRow.isEmpty()) {
             rows.add(addRow);
         }
         if (!draft.getMedia().isEmpty()) {
-            rows.add(List.of(ButtonSpec.callback("Remove last", "wizard:mediaRemove"), ButtonSpec.callback("Clear all", "wizard:mediaClear")));
-            rows.add(List.of(ButtonSpec.callback("Save profile", "wizard:save")));
+            rows.add(List.of(ButtonSpec.callback("↩️ Remove last", "wizard:mediaRemove"), ButtonSpec.callback("🧹 Clear all", "wizard:mediaClear")));
+            rows.add(List.of(ButtonSpec.callback("✅ Save profile", "wizard:save")));
         }
-        rows.add(List.of(ButtonSpec.callback("← Back", "wizard:back"), ButtonSpec.callback("Cancel", "wizard:cancel")));
+        rows.add(List.of(ButtonSpec.callback("⬅️ Back", "wizard:back"), ButtonSpec.callback("↩️ Cancel", "wizard:cancel")));
         return uiFactory.keyboard(rows);
     }
 
     private InlineKeyboardMarkup keyboardBrowse() {
         return uiFactory.keyboard(List.of(
-                List.of(ButtonSpec.callback("Like", "browse:like"), ButtonSpec.callback("Skip", "browse:skip")),
-                List.of(ButtonSpec.callback("Back", "browse:back"), ButtonSpec.callback("Report", "browse:report")),
-                List.of(ButtonSpec.callback("Home", "home"))
+                List.of(ButtonSpec.callback("❤️ Like", "browse:like"), ButtonSpec.callback("⏭ Skip", "browse:skip")),
+                List.of(ButtonSpec.callback("⏮ Back", "browse:back"), ButtonSpec.callback("🚩 Report", "browse:report")),
+                List.of(ButtonSpec.callback("🏠 Home", "home"))
         ));
     }
 
     private InlineKeyboardMarkup keyboardAfterBrowseEmpty() {
         return uiFactory.keyboard(List.of(
-                List.of(ButtonSpec.callback("My profile", "menu:profile"), ButtonSpec.callback("Home", "home"))
+                List.of(ButtonSpec.callback("👤 My profile", "menu:profile"), ButtonSpec.callback("🏠 Home", "home"))
         ));
     }
 
     private InlineKeyboardMarkup keyboardLikes() {
         return uiFactory.keyboard(List.of(
-                List.of(ButtonSpec.callback("Like back", "likes:back"), ButtonSpec.callback("Pass", "likes:pass")),
-                List.of(ButtonSpec.callback("Home", "home"))
+                List.of(ButtonSpec.callback("💘 Like back", "likes:back"), ButtonSpec.callback("⏭ Pass", "likes:pass")),
+                List.of(ButtonSpec.callback("🏠 Home", "home"))
         ));
     }
 
     private InlineKeyboardMarkup keyboardReportEvidence() {
         return uiFactory.keyboard(List.of(
-                List.of(ButtonSpec.callback("Skip evidence", "report:skipEvidence")),
-                List.of(ButtonSpec.callback("Back to profile", "report:cancel"))
+                List.of(ButtonSpec.callback("⏭ Skip evidence", "report:skipEvidence")),
+                List.of(ButtonSpec.callback("↩️ Back to profile", "report:cancel"))
         ));
     }
 
     private InlineKeyboardMarkup keyboardReportConfirm() {
         return uiFactory.keyboard(List.of(
-                List.of(ButtonSpec.callback("Send report", "report:confirm")),
-                List.of(ButtonSpec.callback("Back to profile", "report:cancel"))
+                List.of(ButtonSpec.callback("📨 Send report", "report:confirm")),
+                List.of(ButtonSpec.callback("↩️ Back to profile", "report:cancel"))
         ));
     }
 
     private InlineKeyboardMarkup keyboardSubscription() {
         SubscriptionPricing pricing = profileService.getSubscriptionPricing();
         return uiFactory.keyboard(List.of(
-                List.of(ButtonSpec.callback(pricing.monthlyStars() + " Stars / 30 days", "sub:buy:30")),
-                List.of(ButtonSpec.callback(pricing.yearlyStars() + " Stars / 365 days", "sub:buy:365")),
-                List.of(ButtonSpec.callback("Home", "home"))
+                List.of(ButtonSpec.callback("💎 " + pricing.monthlyStars() + " Stars / 30 days", "sub:buy:30")),
+                List.of(ButtonSpec.callback("💎 " + pricing.yearlyStars() + " Stars / 365 days", "sub:buy:365")),
+                List.of(ButtonSpec.callback("🏠 Home", "home"))
         ));
     }
 
     private InlineKeyboardMarkup keyboardAdInterstitial() {
         return uiFactory.keyboard(List.of(
-                List.of(ButtonSpec.callback("Continue", "browse:continueAd")),
-                List.of(ButtonSpec.callback("Disable ads", "menu:ads"), ButtonSpec.callback("Home", "home"))
+                List.of(ButtonSpec.callback("▶️ Continue", "browse:continueAd")),
+                List.of(ButtonSpec.callback("💎 Disable ads", "menu:ads"), ButtonSpec.callback("🏠 Home", "home"))
         ));
     }
 
     private InlineKeyboardMarkup keyboardModerationHome(boolean admin) {
         List<List<ButtonSpec>> rows = new ArrayList<>();
-        rows.add(List.of(ButtonSpec.callback("Open reports", "mod:reports")));
+        rows.add(List.of(ButtonSpec.callback("📂 Open reports", "mod:reports")));
         if (admin) {
-            rows.add(List.of(ButtonSpec.callback("Overview", "mod:stats"), ButtonSpec.callback("Subscriptions", "mod:subscriptions")));
-            rows.add(List.of(ButtonSpec.callback("Pricing", "mod:pricing"), ButtonSpec.callback("Moderators", "mod:mods")));
+            rows.add(List.of(ButtonSpec.callback("📊 Overview", "mod:stats"), ButtonSpec.callback("💳 Subscriptions", "mod:subscriptions")));
+            rows.add(List.of(ButtonSpec.callback("💸 Pricing", "mod:pricing"), ButtonSpec.callback("🧑‍⚖️ Team", "mod:mods")));
         }
-        rows.add(List.of(ButtonSpec.callback("Home", "home")));
+        rows.add(List.of(ButtonSpec.callback("🏠 Home", "home")));
         return uiFactory.keyboard(rows);
     }
 
     private InlineKeyboardMarkup keyboardModerationBack() {
         return uiFactory.keyboard(List.of(
-                List.of(ButtonSpec.callback("Back", "mod:home")),
-                List.of(ButtonSpec.callback("Home", "home"))
+                List.of(ButtonSpec.callback("⬅️ Back", "mod:home")),
+                List.of(ButtonSpec.callback("🏠 Home", "home"))
         ));
     }
 
     private InlineKeyboardMarkup keyboardReportModeration(long reportId, int index, int total) {
         List<List<ButtonSpec>> rows = new ArrayList<>();
         rows.add(List.of(
-                ButtonSpec.callback("Approve", "mod:report:approve:" + reportId),
-                ButtonSpec.callback("Reject", "mod:report:reject:" + reportId)
+                ButtonSpec.callback("✅ Approve", "mod:report:approve:" + reportId),
+                ButtonSpec.callback("❌ Reject", "mod:report:reject:" + reportId)
         ));
-        rows.add(List.of(ButtonSpec.callback("Ban target", "mod:report:ban:" + reportId)));
+        rows.add(List.of(ButtonSpec.callback("⛔ Ban target", "mod:report:ban:" + reportId)));
         List<ButtonSpec> pager = new ArrayList<>();
         if (index > 0) {
             pager.add(ButtonSpec.callback("← Prev", "mod:report:prev"));
@@ -1713,37 +1758,38 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             pager.add(ButtonSpec.callback("Next →", "mod:report:next"));
         }
         rows.add(pager);
-        rows.add(List.of(ButtonSpec.callback("Back", "mod:home"), ButtonSpec.callback("Home", "home")));
+        rows.add(List.of(ButtonSpec.callback("⬅️ Back", "mod:home"), ButtonSpec.callback("🏠 Home", "home")));
         return uiFactory.keyboard(rows);
     }
 
     private InlineKeyboardMarkup keyboardModeratorManagement() {
         return uiFactory.keyboard(List.of(
-                List.of(ButtonSpec.callback("Add moderator", "mod:add"), ButtonSpec.callback("Remove moderator", "mod:remove")),
-                List.of(ButtonSpec.callback("Back", "mod:home"), ButtonSpec.callback("Home", "home"))
+                List.of(ButtonSpec.callback("👑 Add admin", "mod:addAdmin"), ButtonSpec.callback("👑 Remove admin", "mod:removeAdmin")),
+                List.of(ButtonSpec.callback("🛡 Add moderator", "mod:add"), ButtonSpec.callback("🛡 Remove moderator", "mod:remove")),
+                List.of(ButtonSpec.callback("⬅️ Back", "mod:home"), ButtonSpec.callback("🏠 Home", "home"))
         ));
     }
 
     private InlineKeyboardMarkup keyboardModeratorInput(boolean add) {
         return uiFactory.keyboard(List.of(
-                List.of(ButtonSpec.callback("Back", add ? "mod:mods" : "mod:mods")),
-                List.of(ButtonSpec.callback("Home", "home"))
+                List.of(ButtonSpec.callback("⬅️ Back", "mod:mods")),
+                List.of(ButtonSpec.callback("🏠 Home", "home"))
         ));
     }
 
     private InlineKeyboardMarkup keyboardAdminOverview() {
         return uiFactory.keyboard(List.of(
-                List.of(ButtonSpec.callback("Pricing", "mod:pricing"), ButtonSpec.callback("Subscriptions", "mod:subscriptions")),
-                List.of(ButtonSpec.callback("Moderators", "mod:mods"), ButtonSpec.callback("Back", "mod:home")),
-                List.of(ButtonSpec.callback("Home", "home"))
+                List.of(ButtonSpec.callback("💸 Pricing", "mod:pricing"), ButtonSpec.callback("💳 Subscriptions", "mod:subscriptions")),
+                List.of(ButtonSpec.callback("🧑‍⚖️ Team", "mod:mods"), ButtonSpec.callback("⬅️ Back", "mod:home")),
+                List.of(ButtonSpec.callback("🏠 Home", "home"))
         ));
     }
 
     private InlineKeyboardMarkup keyboardAdminPricing() {
         return uiFactory.keyboard(List.of(
-                List.of(ButtonSpec.callback("Set 30-day price", "mod:price:set:30")),
-                List.of(ButtonSpec.callback("Set 365-day price", "mod:price:set:365")),
-                List.of(ButtonSpec.callback("Back", "mod:stats"), ButtonSpec.callback("Home", "home"))
+                List.of(ButtonSpec.callback("💎 Set 30-day price", "mod:price:set:30")),
+                List.of(ButtonSpec.callback("💎 Set 365-day price", "mod:price:set:365")),
+                List.of(ButtonSpec.callback("⬅️ Back", "mod:stats"), ButtonSpec.callback("🏠 Home", "home"))
         ));
     }
 
@@ -1758,15 +1804,22 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             pager.add(ButtonSpec.callback("Next →", "mod:subs:page:" + (page + 1)));
         }
         rows.add(pager);
-        rows.add(List.of(ButtonSpec.callback("Overview", "mod:stats"), ButtonSpec.callback("Back", "mod:home")));
-        rows.add(List.of(ButtonSpec.callback("Home", "home")));
+        rows.add(List.of(ButtonSpec.callback("📊 Overview", "mod:stats"), ButtonSpec.callback("⬅️ Back", "mod:home")));
+        rows.add(List.of(ButtonSpec.callback("🏠 Home", "home")));
         return uiFactory.keyboard(rows);
     }
 
     private InlineKeyboardMarkup keyboardAdminSubscriptionsEmpty() {
         return uiFactory.keyboard(List.of(
-                List.of(ButtonSpec.callback("Overview", "mod:stats"), ButtonSpec.callback("Back", "mod:home")),
-                List.of(ButtonSpec.callback("Home", "home"))
+                List.of(ButtonSpec.callback("📊 Overview", "mod:stats"), ButtonSpec.callback("⬅️ Back", "mod:home")),
+                List.of(ButtonSpec.callback("🏠 Home", "home"))
+        ));
+    }
+
+    private InlineKeyboardMarkup keyboardAdminInput(boolean add) {
+        return uiFactory.keyboard(List.of(
+                List.of(ButtonSpec.callback("⬅️ Back", "mod:mods")),
+                List.of(ButtonSpec.callback("🏠 Home", "home"))
         ));
     }
 

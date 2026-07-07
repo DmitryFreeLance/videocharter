@@ -331,6 +331,13 @@ public class ProfileService {
                 .toList());
     }
 
+    public List<UserAccount> getAdmins() {
+        return stateStore.read(state -> state.getUsers().values().stream()
+                .filter(UserAccount::isAdmin)
+                .sorted(Comparator.comparingLong(UserAccount::getUserId))
+                .toList());
+    }
+
     public void setModerator(long userId, boolean moderator) {
         stateStore.mutate(state -> {
             UserAccount account = state.getUsers().computeIfAbsent(userId, ignored -> {
@@ -343,8 +350,23 @@ public class ProfileService {
         });
     }
 
+    public void setAdmin(long userId, boolean admin) {
+        stateStore.mutate(state -> {
+            UserAccount account = state.getUsers().computeIfAbsent(userId, ignored -> {
+                UserAccount fresh = new UserAccount();
+                fresh.setUserId(userId);
+                return fresh;
+            });
+            account.setAdmin(admin);
+            return null;
+        });
+    }
+
     public boolean isAdmin(long userId) {
-        return adminIds.contains(userId);
+        return adminIds.contains(userId) || stateStore.read(state -> {
+            UserAccount account = state.getUsers().get(userId);
+            return account != null && account.isAdmin();
+        });
     }
 
     public boolean isModerator(long userId) {

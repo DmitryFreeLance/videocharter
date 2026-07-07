@@ -7,6 +7,7 @@ public class UserAccount {
     private long userId;
     private String username;
     private String firstName;
+    private boolean admin;
     private boolean moderator;
     private boolean banned;
     private LocalDate subscriptionUntil;
@@ -35,6 +36,14 @@ public class UserAccount {
 
     public void setFirstName(String firstName) {
         this.firstName = firstName;
+    }
+
+    public boolean isAdmin() {
+        return admin;
+    }
+
+    public void setAdmin(boolean admin) {
+        this.admin = admin;
     }
 
     public boolean isModerator() {

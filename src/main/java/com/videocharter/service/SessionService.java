@@ -21,6 +21,8 @@ public class SessionService {
         MEDIA_PHOTO,
         MEDIA_VIDEO,
         REPORT_EVIDENCE,
+        ADD_ADMIN_ID,
+        REMOVE_ADMIN_ID,
         ADD_MODERATOR_ID,
         REMOVE_MODERATOR_ID,
         SUBSCRIPTION_PRICE

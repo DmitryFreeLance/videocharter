@@ -50,16 +50,16 @@ public class UiFactory {
 
     public String homeText(UserAccount account, boolean hasProfile, int likesCount, boolean adsDisabled, boolean moderationEnabled) {
         StringBuilder builder = new StringBuilder();
-        builder.append("<b>Video Chatter</b>\n");
-        builder.append("Fast international знакомства in a clean inline UI.\n\n");
-        builder.append("Hi, ").append(Htmls.escape(displayName(account))).append(".\n");
-        builder.append(hasProfile ? "Your profile is ready.\n" : "You do not have a profile yet.\n");
-        builder.append("Incoming likes: <b>").append(likesCount).append("</b>\n");
-        builder.append("Ads: <b>").append(adsDisabled ? "Off" : "On").append("</b>\n");
+        builder.append("<b>🌍 Video Chatter</b>\n");
+        builder.append("Meet new people around the world in a clean, fast and friendly flow.\n\n");
+        builder.append("Hey, ").append(Htmls.escape(displayName(account))).append(".\n");
+        builder.append(hasProfile ? "Your profile is ready to go.\n" : "You have not created your profile yet.\n");
+        builder.append("💌 Incoming likes: <b>").append(likesCount).append("</b>\n");
+        builder.append("📢 Ads: <b>").append(adsDisabled ? "Off" : "On").append("</b>\n");
         if (moderationEnabled) {
-            builder.append("Moderation access: <b>Enabled</b>\n");
+            builder.append("🛡 Moderation access: <b>Enabled</b>\n");
         }
-        builder.append("\nUse the inline buttons below. The bot keeps only the current screen visible.");
+        builder.append("\nChoose an action below and the bot will keep the chat tidy by updating the current screen.");
         return builder.toString();
     }
 
@@ -94,7 +94,7 @@ public class UiFactory {
 
     public String wizardText(ProfileDraft draft, String extra) {
         StringBuilder builder = new StringBuilder();
-        builder.append("<b>Profile setup</b>\n");
+        builder.append("<b>🧩 Profile setup</b>\n");
         if (extra != null && !extra.isBlank()) {
             builder.append(extra).append("\n\n");
         }
@@ -104,7 +104,7 @@ public class UiFactory {
 
     public String subscriptionText(UserAccount account, SubscriptionPricing pricing) {
         StringBuilder builder = new StringBuilder();
-        builder.append("<b>Disable ads</b>\n");
+        builder.append("<b>💎 Disable ads</b>\n");
         builder.append("After the free daily limit, the bot shows a short ad roughly every second profile.\n\n");
         if (account.getSubscriptionUntil() != null) {
             builder.append("Current plan active until <b>")
@@ -119,7 +119,7 @@ public class UiFactory {
     }
 
     public String adInterstitialText(int freeLimit, int viewedToday) {
-        return "<b>Ad break</b>\nYou have already viewed " + viewedToday + " profiles today. "
+        return "<b>📣 Ad break</b>\nYou have already viewed " + viewedToday + " profiles today. "
                 + "Your free limit for today is " + freeLimit + ".\n\n"
                 + "This short interstitial appears roughly every second profile after the daily limit.";
     }
@@ -128,7 +128,7 @@ public class UiFactory {
         String reporterName = reporter == null ? "Unknown" : reporter.getName();
         String targetName = target == null ? "Unknown" : target.getName();
         StringBuilder builder = new StringBuilder();
-        builder.append("<b>Open report #").append(report.getId()).append("</b>\n");
+        builder.append("<b>🛡 Open report #").append(report.getId()).append("</b>\n");
         builder.append("Reporter: ").append(Htmls.escape(reporterName)).append(" (").append(report.getReporterUserId()).append(")\n");
         builder.append("Target: ").append(Htmls.escape(targetName)).append(" (").append(report.getTargetUserId()).append(")\n");
         builder.append("Reason: <b>").append(report.getReason().label()).append("</b>\n");
@@ -149,7 +149,7 @@ public class UiFactory {
             SubscriptionPricing pricing
     ) {
         StringBuilder builder = new StringBuilder();
-        builder.append("<b>Admin overview</b>\n");
+        builder.append("<b>📊 Admin overview</b>\n");
         builder.append("Users in bot: <b>").append(totalUsers).append("</b>\n");
         builder.append("Profiles created: <b>").append(totalProfiles).append("</b>\n");
         builder.append("Active subscriptions: <b>").append(activeSubscriptions).append("</b>\n\n");
@@ -161,7 +161,7 @@ public class UiFactory {
 
     public String adminPricingText(SubscriptionPricing pricing, String extra) {
         StringBuilder builder = new StringBuilder();
-        builder.append("<b>Subscription pricing</b>\n");
+        builder.append("<b>💸 Subscription pricing</b>\n");
         if (extra != null && !extra.isBlank()) {
             builder.append(extra).append("\n\n");
         }
@@ -173,7 +173,7 @@ public class UiFactory {
 
     public String activeSubscriptionsText(List<SubscriptionView> subscriptions, int page, int totalPages) {
         StringBuilder builder = new StringBuilder();
-        builder.append("<b>Active subscriptions</b>\n");
+        builder.append("<b>💳 Active subscriptions</b>\n");
         builder.append("Page <b>").append(page + 1).append("/").append(totalPages).append("</b>\n\n");
         for (SubscriptionView view : subscriptions) {
             UserAccount account = view.account();
