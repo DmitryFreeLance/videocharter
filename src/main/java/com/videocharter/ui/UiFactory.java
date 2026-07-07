@@ -59,6 +59,10 @@ public class UiFactory {
         if (moderationEnabled) {
             builder.append("🛡 Moderation access: <b>Enabled</b>\n");
         }
+        builder.append("\n<b>Rules</b>\n");
+        builder.append("🚫 Forbidden: minors, nudity, harassment, spam, fraud, threats, illegal content and impersonation.\n");
+        builder.append("🔞 18+ only. By using this bot, you confirm that you are 18 or older and accept the rules.\n");
+        builder.append("⚠️ We are not responsible for user behavior, meetings, conversations, payments outside Telegram, or content posted by users.\n");
         builder.append("\nChoose an action below and the bot will keep the chat tidy by updating the current screen.");
         return builder.toString();
     }

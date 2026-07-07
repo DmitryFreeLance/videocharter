@@ -281,7 +281,8 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             openHome(message.getChatId(), account, session, "No active media editor. Start again.");
             return;
         }
-        if (!message.hasVideo()) {
+        String fileId = extractVideoFileId(message);
+        if (fileId == null) {
             renderWizard(message.getChatId(), session, "Please send a video.");
             return;
         }
@@ -290,7 +291,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             renderWizard(message.getChatId(), session, "Video limit reached. You can keep at most 1 video.");
             return;
         }
-        session.getDraft().addVideo(message.getVideo().getFileId());
+        session.getDraft().addVideo(fileId);
         session.setExpectedInput(ExpectedInput.NONE);
         renderWizard(message.getChatId(), session, "Video added.");
     }
@@ -975,24 +976,24 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         draft.setStep(Objects.requireNonNullElse(draft.getStep(), ProfileDraft.WizardStep.GENDER));
 
         switch (draft.getStep()) {
-            case GENDER -> renderMenu(chatId, session, uiFactory.wizardText(draft, extra == null ? "Choose your gender." : extra), keyboardGender(draft));
-            case LOOKING_FOR -> renderMenu(chatId, session, uiFactory.wizardText(draft, extra == null ? "Who are you looking for?" : extra), keyboardLookingFor(draft));
-            case GOAL -> renderMenu(chatId, session, uiFactory.wizardText(draft, extra == null ? "Choose your goal." : extra), keyboardGoal(draft));
+            case GENDER -> renderMenu(chatId, session, uiFactory.wizardText(draft, extra == null ? "🧍 Choose your gender." : extra), keyboardGender(draft));
+            case LOOKING_FOR -> renderMenu(chatId, session, uiFactory.wizardText(draft, extra == null ? "💞 Who are you looking for?" : extra), keyboardLookingFor(draft));
+            case GOAL -> renderMenu(chatId, session, uiFactory.wizardText(draft, extra == null ? "🎯 Choose your goal." : extra), keyboardGoal(draft));
             case NAME -> {
                 session.setExpectedInput(ExpectedInput.NAME);
-                renderMenu(chatId, session, uiFactory.wizardText(draft, extra == null ? "Send your name." : extra), keyboardWizardBack());
+                renderMenu(chatId, session, uiFactory.wizardText(draft, extra == null ? "🪪 Send your name." : extra), keyboardWizardBack());
             }
             case AGE -> {
                 session.setExpectedInput(ExpectedInput.AGE);
-                renderMenu(chatId, session, uiFactory.wizardText(draft, extra == null ? "Send your age." : extra), keyboardWizardBack());
+                renderMenu(chatId, session, uiFactory.wizardText(draft, extra == null ? "🎂 Send your age." : extra), keyboardWizardBack());
             }
             case AGE_RANGE -> {
                 session.setExpectedInput(ExpectedInput.AGE_RANGE);
-                renderMenu(chatId, session, uiFactory.wizardText(draft, extra == null ? "Send preferred age as 18-30." : extra), keyboardWizardBack());
+                renderMenu(chatId, session, uiFactory.wizardText(draft, extra == null ? "📏 Send preferred age as 18-30." : extra), keyboardWizardBack());
             }
-            case PRIVACY -> renderMenu(chatId, session, uiFactory.wizardText(draft, extra == null ? "Choose privacy mode." : extra), keyboardPrivacy(draft));
+            case PRIVACY -> renderMenu(chatId, session, uiFactory.wizardText(draft, extra == null ? "🔒 Choose privacy mode." : extra), keyboardPrivacy(draft));
             case COUNTRY -> renderCountryPage(chatId, session, extra);
-            case MEDIA -> renderMenu(chatId, session, uiFactory.wizardText(draft, extra == null ? "Manage your media." : extra), keyboardMedia(draft));
+            case MEDIA -> renderMenu(chatId, session, uiFactory.wizardText(draft, extra == null ? "🖼 Manage your media." : extra), keyboardMedia(draft));
         }
     }
 
@@ -1025,7 +1026,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         }
         rows.add(pager);
         rows.add(List.of(ButtonSpec.callback("← Back", "wizard:back"), ButtonSpec.callback("Cancel", "wizard:cancel")));
-        renderMenu(chatId, session, uiFactory.wizardText(session.getDraft(), (extra == null ? "Choose your country." : extra) + "\nPopular countries move up automatically."), uiFactory.keyboard(rows));
+        renderMenu(chatId, session, uiFactory.wizardText(session.getDraft(), (extra == null ? "🌍 Choose your country." : extra) + "\nPopular countries move up automatically."), uiFactory.keyboard(rows));
     }
 
     private void openSearch(long chatId, UserSession session, UserAccount account, boolean reset) {
@@ -1134,7 +1135,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         invoice.setTitle("Disable ads");
         invoice.setDescription(days == 365 ? "Disable ads for 365 days." : "Disable ads for 30 days.");
         invoice.setPayload("subscription:" + days);
-        invoice.setProviderToken(null);
+        invoice.setProviderToken("");
         invoice.setCurrency("XTR");
         invoice.setStartParameter("videocharter-subscription");
         invoice.setPrices(List.of(new LabeledPrice("Ad-free plan", stars)));
@@ -1557,6 +1558,22 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             return false;
         }
         return exception.getMessage().toLowerCase().contains("message is not modified");
+    }
+
+    private String extractVideoFileId(Message message) {
+        if (message.hasVideo() && message.getVideo() != null) {
+            return message.getVideo().getFileId();
+        }
+        if (message.getAnimation() != null) {
+            return message.getAnimation().getFileId();
+        }
+        if (message.hasDocument()
+                && message.getDocument() != null
+                && message.getDocument().getMimeType() != null
+                && message.getDocument().getMimeType().toLowerCase().startsWith("video/")) {
+            return message.getDocument().getFileId();
+        }
+        return null;
     }
 
     private PhotoSize largestPhoto(List<PhotoSize> sizes) {
