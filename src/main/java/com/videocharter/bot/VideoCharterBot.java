@@ -155,7 +155,9 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             session.resetReportDraft();
             session.resetProfileScreen();
             cleanupCardMessages(message.getChatId(), session);
-            deleteIncomingMessage(message);
+            if (!"/start".equals(text)) {
+                deleteIncomingMessage(message);
+            }
             openHome(message.getChatId(), account, session, null);
             return;
         }
