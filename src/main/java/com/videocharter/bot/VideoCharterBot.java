@@ -154,6 +154,16 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         }
 
         String text = message.getText();
+        if (isTestCommand(text)) {
+            session.setExpectedInput(ExpectedInput.NONE);
+            session.setDraft(null);
+            session.resetReportDraft();
+            session.resetProfileScreen();
+            cleanupCardMessages(message.getChatId(), session);
+            deleteIncomingMessage(message);
+            openTestAd(message.getChatId(), session, account);
+            return;
+        }
         if (text != null && ("/start".equals(text) || "/menu".equals(text))) {
             session.setExpectedInput(ExpectedInput.NONE);
             session.setDraft(null);
@@ -175,6 +185,13 @@ public class VideoCharterBot extends TelegramLongPollingBot {
 
         deleteIncomingMessage(message);
         openHome(message.getChatId(), account, session, "Use the inline buttons below.");
+    }
+
+    private boolean isTestCommand(String text) {
+        if (text == null) {
+            return false;
+        }
+        return "/test".equals(text) || text.startsWith("/test@");
     }
 
     private void handleSuccessfulPayment(Message message, UserSession session) {
@@ -1100,6 +1117,23 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         return true;
     }
 
+    private void openTestAd(long chatId, UserSession session, UserAccount account) {
+        Optional<AdsgramAd> maybeAd = adsgramService.pickBestAd(account.getUserId(), null);
+        if (maybeAd.isEmpty()) {
+            renderMenu(chatId, session, "<b>📣 Test ad</b>\nNo ad was returned by Adsgram right now. Try again in a moment.", keyboardHomeOnly());
+            return;
+        }
+
+        AdsgramAd ad = maybeAd.get();
+        String text = "<b>📣 Test ad</b>\n\n" + ad.getTextHtml() + "\n\nThis preview was requested manually with <code>/test</code>.";
+        InlineKeyboardMarkup keyboard = keyboardAdsgramTest(ad);
+        if (isHttpUrl(ad.getImageUrl())) {
+            renderProtectedPhotoScreen(chatId, session, ad.getImageUrl(), trimCaption(text), keyboard);
+            return;
+        }
+        renderProtectedTextScreen(chatId, session, text, keyboard);
+    }
+
     private void showBrowseProfile(long chatId, UserSession session, UserProfile profile, boolean pushHistory) {
         cleanupCardMessages(chatId, session);
         if (pushHistory && session.getCurrentBrowseProfileId() != null && !session.getCurrentBrowseProfileId().equals(profile.getUserId())) {
@@ -1865,6 +1899,18 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         }
         rows.add(List.of(ButtonSpec.callback("▶️ Continue", "browse:continueAd")));
         rows.add(List.of(ButtonSpec.callback("💎 Disable ads", "menu:ads"), ButtonSpec.callback("🏠 Home", "home")));
+        return uiFactory.keyboard(rows);
+    }
+
+    private InlineKeyboardMarkup keyboardAdsgramTest(AdsgramAd ad) {
+        List<List<ButtonSpec>> rows = new ArrayList<>();
+        if (isHttpUrl(ad.getClickUrl())) {
+            rows.add(List.of(ButtonSpec.url(normalizeAdButtonLabel(ad.getButtonName(), "🔗 Open offer"), ad.getClickUrl())));
+        }
+        if (isHttpUrl(ad.getRewardUrl())) {
+            rows.add(List.of(ButtonSpec.url(normalizeAdButtonLabel(ad.getRewardButtonName(), "🎁 Claim reward"), ad.getRewardUrl())));
+        }
+        rows.add(List.of(ButtonSpec.callback("🏠 Home", "home")));
         return uiFactory.keyboard(rows);
     }
 

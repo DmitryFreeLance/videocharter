@@ -7,7 +7,7 @@ const statePath = path.join(dataDir, "state.json");
 
 const baseInstant = new Date("2026-07-07T09:00:00.000Z");
 
-const seeds = [
+const curatedSeeds = [
   profileSeed(910000001, "anna_roma", "Anna", "FEMALE", "EVERYONE", "DATING", 24, 22, 33, "OPEN", "IT", "Italy", "🇮🇹"),
   profileSeed(910000002, "lucy_travel", "Lucy", "FEMALE", "EVERYONE", "FRIENDSHIP", 27, 23, 38, "OPEN", "GB", "United Kingdom", "🇬🇧"),
   profileSeed(910000003, "mila_latina", "Mila", "FEMALE", "MEN", "DATING", 26, 24, 36, "PRIVATE", "ES", "Spain", "🇪🇸"),
@@ -30,6 +30,9 @@ const seeds = [
   profileSeed(910000020, "ethan_late", "Ethan", "MALE", "EVERYONE", "FRIENDSHIP", 33, 24, 44, "PRIVATE", "GB", "United Kingdom", "🇬🇧")
 ];
 
+const generatedSeeds = buildGeneratedSeeds(520, 920000001);
+const seeds = [...curatedSeeds, ...generatedSeeds];
+
 function profileSeed(userId, username, name, gender, lookingFor, goal, age, preferredAgeMin, preferredAgeMax, privacyMode, countryCode, countryName, countryFlag) {
   return {
     userId,
@@ -46,6 +49,108 @@ function profileSeed(userId, username, name, gender, lookingFor, goal, age, pref
     countryName,
     countryFlag
   };
+}
+
+function buildGeneratedSeeds(total, startingUserId) {
+  const femaleNames = [
+    "Alina", "Anastasia", "Arina", "Dasha", "Elena", "Irina", "Karina", "Ksenia", "Lera", "Liza",
+    "Maria", "Milana", "Nika", "Polina", "Sasha", "Tanya", "Vera", "Yana", "Zoya", "Amina"
+  ];
+  const maleNames = [
+    "Alex", "Artem", "Bogdan", "Daniil", "Denis", "Egor", "Ilya", "Kirill", "Lev", "Maksim",
+    "Mikhail", "Nikita", "Oleg", "Pavel", "Roman", "Stepan", "Timur", "Vadim", "Vlad", "Yaroslav"
+  ];
+  const otherNames = [
+    "Ari", "Kai", "Noel", "Robin", "Sky", "Taylor", "Jules", "Rin", "Sage", "Nico"
+  ];
+  const countries = [
+    { code: "RU", name: "Russia", flag: "🇷🇺", weight: 14 },
+    { code: "KZ", name: "Kazakhstan", flag: "🇰🇿", weight: 4 },
+    { code: "BY", name: "Belarus", flag: "🇧🇾", weight: 3 },
+    { code: "UA", name: "Ukraine", flag: "🇺🇦", weight: 3 },
+    { code: "GE", name: "Georgia", flag: "🇬🇪", weight: 2 },
+    { code: "AM", name: "Armenia", flag: "🇦🇲", weight: 2 },
+    { code: "UZ", name: "Uzbekistan", flag: "🇺🇿", weight: 2 },
+    { code: "TR", name: "Turkey", flag: "🇹🇷", weight: 2 },
+    { code: "DE", name: "Germany", flag: "🇩🇪", weight: 2 },
+    { code: "PL", name: "Poland", flag: "🇵🇱", weight: 2 },
+    { code: "RS", name: "Serbia", flag: "🇷🇸", weight: 1 },
+    { code: "AE", name: "United Arab Emirates", flag: "🇦🇪", weight: 1 },
+    { code: "TH", name: "Thailand", flag: "🇹🇭", weight: 1 },
+    { code: "IT", name: "Italy", flag: "🇮🇹", weight: 1 }
+  ];
+  const weightedCountries = countries.flatMap(country => Array.from({ length: country.weight }, () => country));
+  const seeds = [];
+
+  for (let index = 0; index < total; index += 1) {
+    const userId = startingUserId + index;
+    const gender = pickGender(index);
+    const name = pickName(gender, index, femaleNames, maleNames, otherNames);
+    const username = slugify(`${name}_${userId}`);
+    const country = weightedCountries[index % weightedCountries.length];
+    const age = 18 + (index % 18);
+    const goal = pickGoal(index);
+    const lookingFor = pickLookingFor(index);
+    const privacyMode = index % 5 === 0 ? "PRIVATE" : "OPEN";
+    const preferredAgeMin = Math.max(18, age - (2 + (index % 4)));
+    const preferredAgeMax = Math.min(45, age + 10 + (index % 7));
+
+    seeds.push(profileSeed(
+      userId,
+      username,
+      name,
+      gender,
+      lookingFor,
+      goal,
+      age,
+      preferredAgeMin,
+      preferredAgeMax,
+      privacyMode,
+      country.code,
+      country.name,
+      country.flag
+    ));
+  }
+
+  return seeds;
+}
+
+function pickGender(index) {
+  if (index % 17 === 0) {
+    return "OTHER";
+  }
+  return index % 2 === 0 ? "FEMALE" : "MALE";
+}
+
+function pickName(gender, index, femaleNames, maleNames, otherNames) {
+  const source = gender === "FEMALE"
+    ? femaleNames
+    : gender === "MALE"
+      ? maleNames
+      : otherNames;
+  return source[index % source.length];
+}
+
+function pickGoal(index) {
+  const goals = [
+    "DATING", "DATING", "DATING", "FRIENDSHIP",
+    "LANGUAGE_EXCHANGE", "NETWORKING"
+  ];
+  return goals[index % goals.length];
+}
+
+function pickLookingFor(index) {
+  if (index % 9 === 0) {
+    return "WOMEN";
+  }
+  if (index % 11 === 0) {
+    return "MEN";
+  }
+  return "EVERYONE";
+}
+
+function slugify(value) {
+  return value.toLowerCase().replace(/[^a-z0-9_]+/g, "_");
 }
 
 function ensureStateShape(value) {
