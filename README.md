@@ -20,6 +20,7 @@ Inline-first Telegram bot for quick знакомства with a clean chat UI:
 - report flow with reason + text/media evidence
 - moderation and moderator management
 - Telegram Stars subscription screen for disabling ads
+- Adsgram bot ads after the free daily limit, with a fallback interstitial if Adsgram is not configured
 - JSON persistence in a mounted data directory
 
 ## Environment variables
@@ -29,6 +30,11 @@ Inline-first Telegram bot for quick знакомства with a clean chat UI:
 - `ADMIN_IDS` - optional comma-separated Telegram user ids with admin access
 - `DATA_FILE` - optional, default `data/state.json`
 - `MIN_ACTION_INTERVAL_MS` - optional, default `700`
+- `ADSGRAM_ENABLED` - optional, auto-detects from Adsgram token + block ids when omitted
+- `ADSGRAM_TOKEN` - optional Adsgram publisher token from your Adsgram cabinet
+- `ADSGRAM_BLOCK_ID` / `ADSGRAM_BLOCK_IDS` - optional Adsgram bot block id(s), digits only or `bot-123` format
+- `ADSGRAM_LANGUAGE` - optional fallback ad language, default auto / `en`
+- `ADSGRAM_CANDIDATES_PER_BLOCK` - optional, default `2`
 
 ## Local run
 
@@ -38,6 +44,9 @@ mvn package
 TELEGRAM_BOT_TOKEN=your_token \
 TELEGRAM_BOT_USERNAME=your_bot_username \
 ADMIN_IDS=123456789 \
+ADSGRAM_ENABLED=true \
+ADSGRAM_TOKEN=your_adsgram_token \
+ADSGRAM_BLOCK_ID=123456 \
 java -jar target/videocharter-bot-1.0.0.jar
 ```
 
@@ -56,6 +65,9 @@ docker run -d \
   -e TELEGRAM_BOT_USERNAME=your_bot_username \
   -e ADMIN_IDS=123456789 \
   -e DATA_FILE=/app/data/state.json \
+  -e ADSGRAM_ENABLED=true \
+  -e ADSGRAM_TOKEN=your_adsgram_token \
+  -e ADSGRAM_BLOCK_ID=123456 \
   -v "$(pwd)/data:/app/data" \
   --restart unless-stopped \
   videocharter-bot
@@ -65,4 +77,5 @@ docker run -d \
 
 - The interface is intentionally English-only, per the specification.
 - Clean chat behavior is implemented on a best-effort basis through message editing and deletion.
+- Adsgram block ids are normalized automatically; both `123456` and `bot-123456` are accepted.
 - For production, mount the `data` volume and keep bot token/admin ids outside the image.

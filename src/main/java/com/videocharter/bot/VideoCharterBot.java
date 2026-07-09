@@ -1,6 +1,7 @@
 package com.videocharter.bot;
 
 import com.videocharter.config.BotConfig;
+import com.videocharter.model.AdsgramAd;
 import com.videocharter.model.Country;
 import com.videocharter.model.DomainEnums;
 import com.videocharter.model.DomainEnums.Gender;
@@ -15,6 +16,7 @@ import com.videocharter.model.UserAccount;
 import com.videocharter.model.UserProfile;
 import com.videocharter.service.CountryCatalog;
 import com.videocharter.service.DailyQuotaService;
+import com.videocharter.service.AdsgramService;
 import com.videocharter.service.ProfileService;
 import com.videocharter.service.ProfileService.SubscriptionPricing;
 import com.videocharter.service.ProfileService.SubscriptionView;
@@ -67,6 +69,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
     private final ProfileService profileService;
     private final SessionService sessionService;
     private final RateLimiterService limiterService;
+    private final AdsgramService adsgramService;
     private final UiFactory uiFactory;
     private final CountryCatalog countryCatalog;
 
@@ -75,6 +78,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             ProfileService profileService,
             SessionService sessionService,
             RateLimiterService limiterService,
+            AdsgramService adsgramService,
             UiFactory uiFactory,
             CountryCatalog countryCatalog
     ) {
@@ -82,6 +86,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         this.profileService = profileService;
         this.sessionService = sessionService;
         this.limiterService = limiterService;
+        this.adsgramService = adsgramService;
         this.uiFactory = uiFactory;
         this.countryCatalog = countryCatalog;
     }
@@ -501,7 +506,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         if (data.startsWith("sub:buy:")) {
             answerCallback(callbackQuery, null);
             int days = Integer.parseInt(data.substring("sub:buy:".length()));
-            sendSubscriptionInvoice(callbackQuery.getMessage().getChatId(), days);
+            sendSubscriptionInvoice(callbackQuery.getMessage().getChatId(), session, days);
             return;
         }
 
@@ -1059,11 +1064,40 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             if (decision.adRequired()) {
                 cleanupCardMessages(chatId, session);
                 session.setPendingProfileAfterAd(next.getUserId());
-                renderMenu(chatId, session, uiFactory.adInterstitialText(decision.freeLimit(), decision.viewedToday()), keyboardAdInterstitial());
+                if (!renderAdsgramInterstitial(chatId, session, account.getUserId(), decision)) {
+                    renderMenu(chatId, session, uiFactory.adInterstitialText(decision.freeLimit(), decision.viewedToday()), keyboardAdInterstitial());
+                }
                 return;
             }
         }
         showBrowseProfile(chatId, session, next, true);
+    }
+
+    private boolean renderAdsgramInterstitial(long chatId,
+                                              UserSession session,
+                                              long telegramUserId,
+                                              DailyQuotaService.ViewingDecision decision) {
+        Optional<AdsgramAd> maybeAd = adsgramService.pickBestAd(telegramUserId, null);
+        if (maybeAd.isEmpty()) {
+            return false;
+        }
+
+        AdsgramAd ad = maybeAd.get();
+        StringBuilder builder = new StringBuilder();
+        builder.append("<b>📣 Sponsored</b>\n\n");
+        builder.append(ad.getTextHtml()).append("\n\n");
+        builder.append("Viewed today: <b>").append(decision.viewedToday()).append("</b>\n");
+        builder.append("Free limit today: <b>").append(decision.freeLimit()).append("</b>\n");
+        builder.append("You can continue to the next profile at any time.");
+
+        InlineKeyboardMarkup keyboard = keyboardAdsgramInterstitial(ad);
+        if (isHttpUrl(ad.getImageUrl())) {
+            renderProtectedPhotoScreen(chatId, session, ad.getImageUrl(), trimCaption(builder.toString()), keyboard);
+            return true;
+        }
+
+        renderProtectedTextScreen(chatId, session, builder.toString(), keyboard);
+        return true;
     }
 
     private void showBrowseProfile(long chatId, UserSession session, UserProfile profile, boolean pushHistory) {
@@ -1127,7 +1161,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         renderMenu(chatId, session, text, keyboardSubscription());
     }
 
-    private void sendSubscriptionInvoice(long chatId, int days) {
+    private void sendSubscriptionInvoice(long chatId, UserSession session, int days) {
         SubscriptionPricing pricing = profileService.getSubscriptionPricing();
         int stars = days == 365 ? pricing.yearlyStars() : pricing.monthlyStars();
         SendInvoice invoice = new StarsInvoice();
@@ -1140,7 +1174,9 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         invoice.setStartParameter("videocharter-subscription");
         invoice.setPrices(List.of(new LabeledPrice("Ad-free plan", stars)));
         try {
-            execute(invoice);
+            clearSubscriptionInvoiceMessage(chatId, session);
+            Message sent = execute(invoice);
+            session.setSubscriptionInvoiceMessageId(sent.getMessageId());
         } catch (TelegramApiException exception) {
             throw new IllegalStateException("Unable to send subscription invoice", exception);
         }
@@ -1324,6 +1360,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
     }
 
     private void renderTextScreen(long chatId, UserSession session, String text, InlineKeyboardMarkup keyboard) {
+        clearSubscriptionInvoiceMessage(chatId, session);
         Integer previousMessageId = session.getMenuMessageId();
         Integer targetMessageId = previousMessageId;
 
@@ -1371,6 +1408,55 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         }
     }
 
+    private void renderProtectedTextScreen(long chatId, UserSession session, String text, InlineKeyboardMarkup keyboard) {
+        clearSubscriptionInvoiceMessage(chatId, session);
+        Integer previousMessageId = session.getMenuMessageId();
+        if (previousMessageId != null) {
+            deleteMessageSilently(chatId, previousMessageId);
+        }
+
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId);
+        message.setParseMode(ParseMode.HTML);
+        message.setText(text);
+        message.setReplyMarkup(keyboard);
+        message.setProtectContent(true);
+        try {
+            Message sent = execute(message);
+            session.setMenuMessageId(sent.getMessageId());
+            session.setScreenKind(UserSession.ScreenKind.TEXT);
+        } catch (TelegramApiException exception) {
+            throw new IllegalStateException("Unable to render protected menu", exception);
+        }
+    }
+
+    private void renderProtectedPhotoScreen(long chatId,
+                                            UserSession session,
+                                            String mediaUrl,
+                                            String caption,
+                                            InlineKeyboardMarkup keyboard) {
+        clearSubscriptionInvoiceMessage(chatId, session);
+        Integer previousMessageId = session.getMenuMessageId();
+        if (previousMessageId != null) {
+            deleteMessageSilently(chatId, previousMessageId);
+        }
+
+        SendPhoto sendPhoto = new SendPhoto();
+        sendPhoto.setChatId(chatId);
+        sendPhoto.setPhoto(new InputFile(mediaUrl));
+        sendPhoto.setCaption(caption);
+        sendPhoto.setParseMode(ParseMode.HTML);
+        sendPhoto.setReplyMarkup(keyboard);
+        sendPhoto.setProtectContent(true);
+        try {
+            Message sent = execute(sendPhoto);
+            session.setMenuMessageId(sent.getMessageId());
+            session.setScreenKind(UserSession.ScreenKind.PHOTO);
+        } catch (TelegramApiException exception) {
+            renderProtectedTextScreen(chatId, session, caption, keyboard);
+        }
+    }
+
     private void renderProfileScreen(
             long chatId,
             UserSession session,
@@ -1380,6 +1466,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             ProfileScreenContext context,
             boolean preserveMediaIndex
     ) {
+        clearSubscriptionInvoiceMessage(chatId, session);
         List<MediaAttachment> media = profile.getMedia();
         if (!preserveMediaIndex
                 || session.getProfileScreenContext() != context
@@ -1525,6 +1612,17 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         session.getActiveCardMessageIds().clear();
     }
 
+    private void clearSubscriptionInvoiceMessage(long chatId, UserSession session) {
+        Integer invoiceMessageId = session.getSubscriptionInvoiceMessageId();
+        if (invoiceMessageId == null) {
+            return;
+        }
+        session.setSubscriptionInvoiceMessageId(null);
+        if (!invoiceMessageId.equals(session.getMenuMessageId())) {
+            deleteMessageSilently(chatId, invoiceMessageId);
+        }
+    }
+
     private void deleteIncomingMessage(Message message) {
         if (message.getMessageId() != null) {
             deleteMessageSilently(message.getChatId(), message.getMessageId());
@@ -1558,6 +1656,22 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             return false;
         }
         return exception.getMessage().toLowerCase().contains("message is not modified");
+    }
+
+    private boolean isHttpUrl(String value) {
+        if (value == null) {
+            return false;
+        }
+        String normalized = value.trim().toLowerCase();
+        return normalized.startsWith("https://") || normalized.startsWith("http://");
+    }
+
+    private String normalizeAdButtonLabel(String label, String fallback) {
+        if (label == null || label.isBlank()) {
+            return fallback;
+        }
+        String trimmed = label.trim();
+        return trimmed.length() <= 32 ? trimmed : trimmed.substring(0, 29) + "...";
     }
 
     private String extractVideoFileId(Message message) {
@@ -1739,6 +1853,19 @@ public class VideoCharterBot extends TelegramLongPollingBot {
                 List.of(ButtonSpec.callback("▶️ Continue", "browse:continueAd")),
                 List.of(ButtonSpec.callback("💎 Disable ads", "menu:ads"), ButtonSpec.callback("🏠 Home", "home"))
         ));
+    }
+
+    private InlineKeyboardMarkup keyboardAdsgramInterstitial(AdsgramAd ad) {
+        List<List<ButtonSpec>> rows = new ArrayList<>();
+        if (isHttpUrl(ad.getClickUrl())) {
+            rows.add(List.of(ButtonSpec.url(normalizeAdButtonLabel(ad.getButtonName(), "🔗 Open offer"), ad.getClickUrl())));
+        }
+        if (isHttpUrl(ad.getRewardUrl())) {
+            rows.add(List.of(ButtonSpec.url(normalizeAdButtonLabel(ad.getRewardButtonName(), "🎁 Claim reward"), ad.getRewardUrl())));
+        }
+        rows.add(List.of(ButtonSpec.callback("▶️ Continue", "browse:continueAd")));
+        rows.add(List.of(ButtonSpec.callback("💎 Disable ads", "menu:ads"), ButtonSpec.callback("🏠 Home", "home")));
+        return uiFactory.keyboard(rows);
     }
 
     private InlineKeyboardMarkup keyboardModerationHome(boolean admin) {

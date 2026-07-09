@@ -2,6 +2,7 @@ package com.videocharter;
 
 import com.videocharter.bot.VideoCharterBot;
 import com.videocharter.config.BotConfig;
+import com.videocharter.service.AdsgramService;
 import com.videocharter.service.CountryCatalog;
 import com.videocharter.service.DailyQuotaService;
 import com.videocharter.service.ProfileService;
@@ -26,6 +27,7 @@ public final class VideoCharterApplication {
         ProfileService profileService = new ProfileService(stateStore, countryCatalog, quotaService, config.adminIds());
         SessionService sessionService = new SessionService();
         RateLimiterService limiterService = new RateLimiterService(Duration.ofMillis(config.minimumActionIntervalMs()));
+        AdsgramService adsgramService = new AdsgramService(config);
         UiFactory uiFactory = new UiFactory();
 
         TelegramBotsApi botsApi = new TelegramBotsApi(DefaultBotSession.class);
@@ -34,6 +36,7 @@ public final class VideoCharterApplication {
                 profileService,
                 sessionService,
                 limiterService,
+                adsgramService,
                 uiFactory,
                 countryCatalog
         ));

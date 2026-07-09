@@ -64,6 +64,7 @@ public class SessionService {
         private int moderationIndex;
         private int subscriptionsPage;
         private Integer pendingSubscriptionPriceDays;
+        private Integer subscriptionInvoiceMessageId;
 
         public Integer getMenuMessageId() {
             return menuMessageId;
@@ -219,6 +220,14 @@ public class SessionService {
 
         public void setPendingSubscriptionPriceDays(Integer pendingSubscriptionPriceDays) {
             this.pendingSubscriptionPriceDays = pendingSubscriptionPriceDays;
+        }
+
+        public Integer getSubscriptionInvoiceMessageId() {
+            return subscriptionInvoiceMessageId;
+        }
+
+        public void setSubscriptionInvoiceMessageId(Integer subscriptionInvoiceMessageId) {
+            this.subscriptionInvoiceMessageId = subscriptionInvoiceMessageId;
         }
 
         public void resetReportDraft() {
