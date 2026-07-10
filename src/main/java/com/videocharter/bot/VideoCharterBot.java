@@ -64,6 +64,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
     private static final Pattern AGE_RANGE_PATTERN = Pattern.compile("\\s*(\\d{2})\\s*-\\s*(\\d{2})\\s*");
     private static final int COUNTRIES_PER_PAGE = 10;
     private static final int SUBSCRIPTIONS_PER_PAGE = 6;
+    private static final int ADMIN_USERS_PER_PAGE = 8;
 
     private final BotConfig config;
     private final ProfileService profileService;
@@ -377,13 +378,18 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             long userId = Long.parseLong(Objects.requireNonNullElse(message.getText(), "").trim());
             profileService.setAdmin(userId, add);
             session.setExpectedInput(ExpectedInput.NONE);
+            session.setAdminUsersPage(0);
             openModeratorManagement(message.getChatId(), session, account, add ? "Admin added." : "Admin removed.");
         } catch (Exception ignored) {
+            if (add) {
+                openAdminUserPicker(message.getChatId(), session, account, session.getAdminUsersPage(), "Send a numeric Telegram user ID or choose a user below.");
+                return;
+            }
             renderMenu(
                     message.getChatId(),
                     session,
-                    add ? "<b>👑 Add admin</b>\nSend a numeric Telegram user ID." : "<b>👑 Remove admin</b>\nSend a numeric Telegram user ID.",
-                    keyboardAdminInput(add)
+                    "<b>👑 Remove admin</b>\nSend a numeric Telegram user ID.",
+                    keyboardAdminInput(false)
             );
         }
     }
@@ -928,12 +934,26 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         }
         if ("mod:addAdmin".equals(data)) {
             session.setExpectedInput(ExpectedInput.ADD_ADMIN_ID);
-            renderMenu(chatId, session, "<b>👑 Add admin</b>\nSend a numeric Telegram user ID.", keyboardAdminInput(true));
+            session.setAdminUsersPage(0);
+            openAdminUserPicker(chatId, session, account, 0, null);
             return;
         }
         if ("mod:removeAdmin".equals(data)) {
             session.setExpectedInput(ExpectedInput.REMOVE_ADMIN_ID);
             renderMenu(chatId, session, "<b>👑 Remove admin</b>\nSend a numeric Telegram user ID.", keyboardAdminInput(false));
+            return;
+        }
+        if (data.startsWith("mod:addAdmin:page:")) {
+            session.setExpectedInput(ExpectedInput.ADD_ADMIN_ID);
+            int page = Integer.parseInt(data.substring("mod:addAdmin:page:".length()));
+            openAdminUserPicker(chatId, session, account, page, null);
+            return;
+        }
+        if (data.startsWith("mod:addAdmin:pick:")) {
+            session.setExpectedInput(ExpectedInput.NONE);
+            long userId = Long.parseLong(data.substring("mod:addAdmin:pick:".length()));
+            profileService.setAdmin(userId, true);
+            openAdminUserPicker(chatId, session, account, session.getAdminUsersPage(), "Admin added: <code>" + userId + "</code>");
             return;
         }
         if (data.startsWith("mod:report:")) {
@@ -1433,6 +1453,50 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         renderMenu(chatId, session, builder.toString(), keyboardModeratorManagement());
     }
 
+    private void openAdminUserPicker(long chatId, UserSession session, UserAccount account, int page, String notice) {
+        if (!profileService.isAdmin(account.getUserId())) {
+            openModerationHome(chatId, session, account, "Only admins can manage admins.");
+            return;
+        }
+
+        List<UserAccount> users = profileService.getAllUsers();
+        if (users.isEmpty()) {
+            renderMenu(chatId, session, "<b>👑 Add admin</b>\nNo users are available yet.", keyboardAdminInput(true));
+            return;
+        }
+
+        int totalPages = Math.max(1, (users.size() + ADMIN_USERS_PER_PAGE - 1) / ADMIN_USERS_PER_PAGE);
+        int normalizedPage = Math.max(0, Math.min(page, totalPages - 1));
+        session.setAdminUsersPage(normalizedPage);
+
+        int fromIndex = normalizedPage * ADMIN_USERS_PER_PAGE;
+        int toIndex = Math.min(fromIndex + ADMIN_USERS_PER_PAGE, users.size());
+
+        StringBuilder builder = new StringBuilder();
+        if (notice != null) {
+            builder.append(notice).append("\n\n");
+        }
+        builder.append("<b>👑 Add admin</b>\n");
+        builder.append("Send a numeric Telegram user ID or tap a user below.\n");
+        builder.append("Page <b>").append(normalizedPage + 1).append("/").append(totalPages).append("</b>\n\n");
+
+        for (UserAccount user : users.subList(fromIndex, toIndex)) {
+            builder.append("• <code>").append(user.getUserId()).append("</code>");
+            if (user.getFirstName() != null && !user.getFirstName().isBlank()) {
+                builder.append(" — ").append(Htmls.escape(user.getFirstName()));
+            }
+            if (user.getUsername() != null && !user.getUsername().isBlank()) {
+                builder.append(" (@").append(Htmls.escape(user.getUsername())).append(")");
+            }
+            if (profileService.isAdmin(user.getUserId())) {
+                builder.append(" <b>[admin]</b>");
+            }
+            builder.append("\n");
+        }
+
+        renderMenu(chatId, session, builder.toString(), keyboardAdminPicker(users.subList(fromIndex, toIndex), normalizedPage, totalPages));
+    }
+
     private void sendMatchNotifications(long firstUserId, long secondUserId) {
         UserProfile first = profileService.getProfile(firstUserId);
         UserProfile second = profileService.getProfile(secondUserId);
@@ -1918,7 +1982,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
     private InlineKeyboardMarkup keyboardBrowse() {
         return uiFactory.keyboard(List.of(
                 List.of(ButtonSpec.callback("❤️ Like", "browse:like"), ButtonSpec.callback("🚩 Report", "browse:report")),
-                List.of(ButtonSpec.callback("⏭ Skip", "browse:skip"), ButtonSpec.callback("⏮ Back", "browse:back")),
+                List.of(ButtonSpec.callback("⏮ Back", "browse:back"), ButtonSpec.callback("⏭ Skip", "browse:skip")),
                 List.of(ButtonSpec.callback("🏠 Home", "home"))
         ));
     }
@@ -2084,10 +2148,52 @@ public class VideoCharterBot extends TelegramLongPollingBot {
     }
 
     private InlineKeyboardMarkup keyboardAdminInput(boolean add) {
+        if (add) {
+            return uiFactory.keyboard(List.of(
+                    List.of(ButtonSpec.callback("👥 Show users", "mod:addAdmin:page:0")),
+                    List.of(ButtonSpec.callback("⬅️ Back", "mod:mods")),
+                    List.of(ButtonSpec.callback("🏠 Home", "home"))
+            ));
+        }
         return uiFactory.keyboard(List.of(
                 List.of(ButtonSpec.callback("⬅️ Back", "mod:mods")),
                 List.of(ButtonSpec.callback("🏠 Home", "home"))
         ));
+    }
+
+    private InlineKeyboardMarkup keyboardAdminPicker(List<UserAccount> users, int page, int totalPages) {
+        List<List<ButtonSpec>> rows = new ArrayList<>();
+        for (UserAccount user : users) {
+            String label = adminUserLabel(user);
+            rows.add(List.of(ButtonSpec.callback(label, "mod:addAdmin:pick:" + user.getUserId())));
+        }
+
+        List<ButtonSpec> pager = new ArrayList<>();
+        if (page > 0) {
+            pager.add(ButtonSpec.callback("← Prev", "mod:addAdmin:page:" + (page - 1)));
+        }
+        pager.add(ButtonSpec.callback((page + 1) + "/" + totalPages, "noop"));
+        if (page < totalPages - 1) {
+            pager.add(ButtonSpec.callback("Next →", "mod:addAdmin:page:" + (page + 1)));
+        }
+        rows.add(pager);
+        rows.add(List.of(ButtonSpec.callback("⬅️ Back", "mod:mods"), ButtonSpec.callback("🏠 Home", "home")));
+        return uiFactory.keyboard(rows);
+    }
+
+    private String adminUserLabel(UserAccount user) {
+        StringBuilder builder = new StringBuilder();
+        if (user.getFirstName() != null && !user.getFirstName().isBlank()) {
+            builder.append(user.getFirstName());
+        } else if (user.getUsername() != null && !user.getUsername().isBlank()) {
+            builder.append("@").append(user.getUsername());
+        } else {
+            builder.append(user.getUserId());
+        }
+        if (user.isAdmin()) {
+            builder.append(" • admin");
+        }
+        return builder.length() <= 30 ? builder.toString() : builder.substring(0, 27) + "...";
     }
 
     private String mark(boolean selected, String label) {

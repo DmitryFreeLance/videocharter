@@ -63,6 +63,7 @@ public class SessionService {
         private String reportEvidenceFileType;
         private int moderationIndex;
         private int subscriptionsPage;
+        private int adminUsersPage;
         private Integer pendingSubscriptionPriceDays;
         private Integer subscriptionInvoiceMessageId;
 
@@ -212,6 +213,14 @@ public class SessionService {
 
         public void setSubscriptionsPage(int subscriptionsPage) {
             this.subscriptionsPage = subscriptionsPage;
+        }
+
+        public int getAdminUsersPage() {
+            return adminUsersPage;
+        }
+
+        public void setAdminUsersPage(int adminUsersPage) {
+            this.adminUsersPage = adminUsersPage;
         }
 
         public Integer getPendingSubscriptionPriceDays() {

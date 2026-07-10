@@ -342,6 +342,14 @@ public class ProfileService {
                 .toList());
     }
 
+    public List<UserAccount> getAllUsers() {
+        return stateStore.read(state -> state.getUsers().values().stream()
+                .sorted(Comparator
+                        .comparing((UserAccount account) -> account.getFirstName(), Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER))
+                        .thenComparingLong(UserAccount::getUserId))
+                .toList());
+    }
+
     public void setModerator(long userId, boolean moderator) {
         stateStore.mutate(state -> {
             UserAccount account = state.getUsers().computeIfAbsent(userId, ignored -> {
