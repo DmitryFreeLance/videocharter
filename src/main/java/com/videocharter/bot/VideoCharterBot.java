@@ -154,6 +154,16 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         }
 
         String text = message.getText();
+        if (isDebugBrowseCommand(text) && profileService.isAdmin(user.getId())) {
+            session.setExpectedInput(ExpectedInput.NONE);
+            session.setDraft(null);
+            session.resetReportDraft();
+            session.resetProfileScreen();
+            cleanupCardMessages(message.getChatId(), session);
+            deleteIncomingMessage(message);
+            openDebugBrowse(message.getChatId(), session, account);
+            return;
+        }
         if (isTestCommand(text)) {
             session.setExpectedInput(ExpectedInput.NONE);
             session.setDraft(null);
@@ -192,6 +202,13 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             return false;
         }
         return "/test".equals(text) || text.startsWith("/test@");
+    }
+
+    private boolean isDebugBrowseCommand(String text) {
+        if (text == null) {
+            return false;
+        }
+        return "/debugbrowse".equals(text) || text.startsWith("/debugbrowse@");
     }
 
     private void handleSuccessfulPayment(Message message, UserSession session) {
@@ -1134,6 +1151,66 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         renderProtectedTextScreen(chatId, session, text, keyboard);
     }
 
+    private void openDebugBrowse(long chatId, UserSession session, UserAccount account) {
+        UserProfile me = profileService.getProfile(account.getUserId());
+        List<UserProfile> candidates = me == null
+                ? List.of()
+                : profileService.findBrowseCandidates(account.getUserId(), session.getSeenProfileIds(), 5);
+        int freeLimit = profileService.getFreeViewLimit(LocalDate.now());
+        int currentViews = account.getLastViewDate() != null && account.getLastViewDate().equals(LocalDate.now())
+                ? account.getViewsToday()
+                : 0;
+        int nextViews = currentViews + 1;
+        int postLimitIndex = Math.max(0, nextViews - freeLimit);
+        boolean adOnNextProfile = !profileService.hasActiveSubscription(account.getUserId(), LocalDate.now())
+                && postLimitIndex > 0
+                && postLimitIndex % 2 == 1;
+
+        StringBuilder builder = new StringBuilder();
+        builder.append("<b>🧪 Browse debug</b>\n");
+        builder.append("Data file: <code>").append(Htmls.escape(config.dataFile().toString())).append("</code>\n");
+        builder.append("User ID: <code>").append(account.getUserId()).append("</code>\n");
+        builder.append("Profile exists: <b>").append(me != null ? "yes" : "no").append("</b>\n");
+        builder.append("Ads disabled by subscription: <b>")
+                .append(profileService.hasActiveSubscription(account.getUserId(), LocalDate.now()) ? "yes" : "no")
+                .append("</b>\n");
+        builder.append("Views today: <b>").append(currentViews).append("</b>\n");
+        builder.append("Free daily limit: <b>").append(freeLimit).append("</b>\n");
+        builder.append("Ad on next profile: <b>").append(adOnNextProfile ? "yes" : "no").append("</b>\n");
+        builder.append("Total profiles: <b>").append(profileService.getTotalProfilesCount()).append("</b>\n");
+        builder.append("Seen profiles in session: <b>").append(session.getSeenProfileIds().size()).append("</b>\n");
+        builder.append("Candidate sample count: <b>").append(candidates.size()).append("</b>\n");
+
+        if (me != null) {
+            builder.append("\n<b>Your profile</b>\n");
+            builder.append("Gender: ").append(me.getGender().label()).append("\n");
+            builder.append("Looking for: ").append(me.getLookingFor().label()).append("\n");
+            builder.append("Goal: ").append(me.getGoal().label()).append("\n");
+            builder.append("Age: ").append(me.getAge()).append("\n");
+            builder.append("Preferred age: ").append(me.getPreferredAgeMin()).append("-").append(me.getPreferredAgeMax()).append("\n");
+            builder.append("Country: ").append(Htmls.escape(me.getCountryFlag())).append(" ").append(Htmls.escape(me.getCountryName())).append("\n");
+        }
+
+        if (!candidates.isEmpty()) {
+            builder.append("\n<b>Sample candidates</b>\n");
+            for (UserProfile candidate : candidates) {
+                builder.append("• ")
+                        .append(Htmls.escape(candidate.getName()))
+                        .append(", ")
+                        .append(candidate.getAge())
+                        .append(" — ")
+                        .append(Htmls.escape(candidate.getCountryCode()))
+                        .append(", ")
+                        .append(candidate.getGender().label())
+                        .append(", ")
+                        .append(candidate.getLookingFor().label())
+                        .append("\n");
+            }
+        }
+
+        renderMenu(chatId, session, builder.toString(), keyboardHomeOnly());
+    }
+
     private void showBrowseProfile(long chatId, UserSession session, UserProfile profile, boolean pushHistory) {
         cleanupCardMessages(chatId, session);
         if (pushHistory && session.getCurrentBrowseProfileId() != null && !session.getCurrentBrowseProfileId().equals(profile.getUserId())) {
@@ -1840,8 +1917,8 @@ public class VideoCharterBot extends TelegramLongPollingBot {
 
     private InlineKeyboardMarkup keyboardBrowse() {
         return uiFactory.keyboard(List.of(
-                List.of(ButtonSpec.callback("❤️ Like", "browse:like"), ButtonSpec.callback("⏭ Skip", "browse:skip")),
-                List.of(ButtonSpec.callback("⏮ Back", "browse:back"), ButtonSpec.callback("🚩 Report", "browse:report")),
+                List.of(ButtonSpec.callback("❤️ Like", "browse:like"), ButtonSpec.callback("🚩 Report", "browse:report")),
+                List.of(ButtonSpec.callback("⏭ Skip", "browse:skip"), ButtonSpec.callback("⏮ Back", "browse:back")),
                 List.of(ButtonSpec.callback("🏠 Home", "home"))
         ));
     }

@@ -226,6 +226,10 @@ public class ProfileService {
                 .count());
     }
 
+    public int getFreeViewLimit(LocalDate date) {
+        return dailyQuotaService.freeLimit(date);
+    }
+
     public List<SubscriptionView> getActiveSubscriptions(LocalDate today) {
         return stateStore.read(state -> state.getUsers().values().stream()
                 .filter(account -> account.getSubscriptionUntil() != null && !account.getSubscriptionUntil().isBefore(today))
