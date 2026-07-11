@@ -1967,7 +1967,6 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         markup.setResizeKeyboard(true);
         markup.setSelective(false);
         markup.setOneTimeKeyboard(false);
-        markup.setIsPersistent(true);
         return markup;
     }
 
@@ -2116,7 +2115,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             deleteMessageSilently(chatId, previousMessageId);
             session.setMenuMessageId(null);
         }
-        cleanupCardMessages(chatId, session);
+        List<Integer> previousCardMessageIds = new ArrayList<>(session.getActiveCardMessageIds());
         showTransientKeyboard(chatId, session, keyboard, "✨ 📣");
 
         SendPhoto sendPhoto = new SendPhoto();
@@ -2127,9 +2126,12 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         sendPhoto.setProtectContent(true);
         try {
             Message sent = execute(sendPhoto);
+            session.getActiveCardMessageIds().clear();
             session.getActiveCardMessageIds().add(sent.getMessageId());
             session.setScreenKind(UserSession.ScreenKind.TEXT);
+            deleteMessagesSilently(chatId, previousCardMessageIds);
         } catch (TelegramApiException exception) {
+            deleteMessagesSilently(chatId, previousCardMessageIds);
             renderProtectedTextScreen(chatId, session, caption, keyboard);
         }
     }
@@ -2141,7 +2143,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
                                         InlineKeyboardMarkup keyboard,
                                         boolean protectContent) {
         clearSubscriptionInvoiceMessage(chatId, session);
-        cleanupCardMessages(chatId, session);
+        List<Integer> previousCardMessageIds = new ArrayList<>(session.getActiveCardMessageIds());
         if (keyboard != null) {
             showTransientKeyboard(chatId, session, keyboard, anchorText);
         } else {
@@ -2166,8 +2168,9 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             session.getActiveCardMessageIds().clear();
             session.getActiveCardMessageIds().add(sent.getMessageId());
             session.setScreenKind(UserSession.ScreenKind.TEXT);
+            deleteMessagesSilently(chatId, previousCardMessageIds);
         } catch (TelegramApiException exception) {
-            cleanupCardMessages(chatId, session);
+            deleteMessagesSilently(chatId, previousCardMessageIds);
             if (protectContent) {
                 renderProtectedTextScreen(chatId, session, text, keyboard);
             } else {
@@ -2203,7 +2206,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         }
 
         try {
-            cleanupCardMessages(chatId, session);
+            List<Integer> previousCardMessageIds = new ArrayList<>(session.getActiveCardMessageIds());
             if (keyboard != null) {
                 showTransientKeyboard(chatId, session, keyboard, keyboardAnchorText(context));
             } else {
@@ -2252,6 +2255,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             for (Message sentMessage : sentMessages) {
                 session.getActiveCardMessageIds().add(sentMessage.getMessageId());
             }
+            deleteMessagesSilently(chatId, previousCardMessageIds);
         } catch (TelegramApiException exception) {
             cleanupCardMessages(chatId, session);
             renderTextScreen(chatId, session, caption, keyboard);
@@ -2364,6 +2368,14 @@ public class VideoCharterBot extends TelegramLongPollingBot {
     private void deleteIncomingMessage(Message message) {
         if (message.getMessageId() != null) {
             deleteMessageSilently(message.getChatId(), message.getMessageId());
+        }
+    }
+
+    private void deleteMessagesSilently(long chatId, List<Integer> messageIds) {
+        for (Integer messageId : messageIds) {
+            if (messageId != null) {
+                deleteMessageSilently(chatId, messageId);
+            }
         }
     }
 
