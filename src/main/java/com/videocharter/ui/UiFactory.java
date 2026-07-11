@@ -80,6 +80,8 @@ public class UiFactory {
         builder.append("Media: <b>").append(profile.getMedia().size()).append("</b>");
         if (profile.getPrivacyMode().name().equals("OPEN") && profile.getUsername() != null && !profile.getUsername().isBlank()) {
             builder.append("\nUsername: @").append(Htmls.escape(profile.getUsername()));
+        } else if (profile.getPrivacyMode().name().equals("PRIVATE")) {
+            builder.append("\nUsername: <b>hidden</b>");
         }
         return builder.toString();
     }
@@ -109,7 +111,7 @@ public class UiFactory {
     public String subscriptionText(UserAccount account, SubscriptionPricing pricing) {
         StringBuilder builder = new StringBuilder();
         builder.append("<b>💎 Disable ads</b>\n");
-        builder.append("After the free daily limit, the bot shows a short ad roughly every second profile.\n\n");
+        builder.append("After the free daily limit, the bot shows one short ad before each next profile.\n\n");
         if (account.getSubscriptionUntil() != null) {
             builder.append("Current plan active until <b>")
                     .append(account.getSubscriptionUntil().format(DateTimeFormatter.ofPattern("dd MMM uuuu", Locale.ENGLISH)))
@@ -125,7 +127,7 @@ public class UiFactory {
     public String adInterstitialText(int freeLimit, int viewedToday) {
         return "<b>📣 Ad break</b>\nYou have already viewed " + viewedToday + " profiles today. "
                 + "Your free limit for today is " + freeLimit + ".\n\n"
-                + "This short interstitial appears roughly every second profile after the daily limit.";
+                + "After the free daily limit, one short interstitial appears before each next profile.";
     }
 
     public String moderationReportText(ReportRecord report, UserProfile reporter, UserProfile target) {

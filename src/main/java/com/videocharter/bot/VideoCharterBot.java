@@ -57,11 +57,15 @@ import org.telegram.telegrambots.meta.api.objects.media.InputMediaPhoto;
 import org.telegram.telegrambots.meta.api.objects.media.InputMediaVideo;
 import org.telegram.telegrambots.meta.api.objects.payments.LabeledPrice;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.InlineKeyboardMarkup;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMarkup;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardRemove;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardButton;
+import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 public class VideoCharterBot extends TelegramLongPollingBot {
 
-    private static final Pattern AGE_RANGE_PATTERN = Pattern.compile("\\s*(\\d{2})\\s*-\\s*(\\d{2})\\s*");
+    private static final Pattern AGE_RANGE_PATTERN = Pattern.compile("\\s*(\\d{1,3})\\s*-\\s*(\\d{1,3})\\s*");
     private static final int COUNTRIES_PER_PAGE = 10;
     private static final int SUBSCRIPTIONS_PER_PAGE = 6;
     private static final int ADMIN_USERS_PER_PAGE = 8;
@@ -154,6 +158,23 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             return;
         }
 
+        if (shouldHandleWizardMediaUpload(message, session)) {
+            handleWizardMediaInput(message, session, account);
+            deleteIncomingMessage(message);
+            return;
+        }
+        if (session.getDraft() != null && handleWizardReplyMessage(message, session, account)) {
+            deleteIncomingMessage(message);
+            return;
+        }
+        if (session.getDraft() != null
+                && session.getDraft().getStep() == ProfileDraft.WizardStep.MEDIA
+                && session.getExpectedInput() == ExpectedInput.NONE) {
+            deleteIncomingMessage(message);
+            renderWizard(message.getChatId(), session, "Send a photo or a video directly to the bot.");
+            return;
+        }
+
         String text = message.getText();
         if (isDebugBrowseCommand(text) && profileService.isAdmin(user.getId())) {
             session.setExpectedInput(ExpectedInput.NONE);
@@ -195,7 +216,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         }
 
         deleteIncomingMessage(message);
-        openHome(message.getChatId(), account, session, "Use the inline buttons below.");
+        openHome(message.getChatId(), account, session, "Use the buttons below.");
     }
 
     private boolean isTestCommand(String text) {
@@ -261,15 +282,15 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         }
         try {
             int age = Integer.parseInt(Objects.requireNonNullElse(message.getText(), "").trim());
-            if (age < 18 || age > 80) {
+            if (age < 0 || age > 999) {
                 throw new NumberFormatException("Out of range");
             }
             session.getDraft().setAge(age);
             session.getDraft().setStep(ProfileDraft.WizardStep.AGE_RANGE);
             session.setExpectedInput(ExpectedInput.NONE);
-            renderWizard(message.getChatId(), session, "Send the preferred age range, for example <b>18-30</b>.");
+            renderWizard(message.getChatId(), session, "Send the preferred age range, for example <b>0-999</b> or <b>18-35</b>.");
         } catch (Exception ignored) {
-            renderWizard(message.getChatId(), session, "Age must be a number between 18 and 80.");
+            renderWizard(message.getChatId(), session, "Age must be a number between 0 and 999. Minors are not allowed to use the bot.");
         }
     }
 
@@ -285,8 +306,8 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         }
         int min = Integer.parseInt(matcher.group(1));
         int max = Integer.parseInt(matcher.group(2));
-        if (min < 18 || max > 80 || min > max) {
-            renderWizard(message.getChatId(), session, "Preferred age must stay within 18-80 and the minimum must not be greater than the maximum.");
+        if (min < 0 || max > 999 || min > max) {
+            renderWizard(message.getChatId(), session, "Preferred age must stay within 0-999 and the minimum must not be greater than the maximum.");
             return;
         }
         session.getDraft().setPreferredAgeMin(min);
@@ -297,43 +318,11 @@ public class VideoCharterBot extends TelegramLongPollingBot {
     }
 
     private void handlePhotoInput(Message message, UserSession session, UserAccount account) {
-        if (session.getDraft() == null) {
-            openHome(message.getChatId(), account, session, "No active media editor. Start again.");
-            return;
-        }
-        if (!message.hasPhoto()) {
-            renderWizard(message.getChatId(), session, "Please send a photo.");
-            return;
-        }
-        if (!session.getDraft().canAddPhoto()) {
-            session.setExpectedInput(ExpectedInput.NONE);
-            renderWizard(message.getChatId(), session, "Photo limit reached. Remove something first.");
-            return;
-        }
-        String fileId = largestPhoto(message.getPhoto()).getFileId();
-        session.getDraft().addPhoto(fileId);
-        session.setExpectedInput(ExpectedInput.NONE);
-        renderWizard(message.getChatId(), session, "Photo added.");
+        handleWizardMediaInput(message, session, account);
     }
 
     private void handleVideoInput(Message message, UserSession session, UserAccount account) {
-        if (session.getDraft() == null) {
-            openHome(message.getChatId(), account, session, "No active media editor. Start again.");
-            return;
-        }
-        String fileId = extractVideoFileId(message);
-        if (fileId == null) {
-            renderWizard(message.getChatId(), session, "Please send a video.");
-            return;
-        }
-        if (!session.getDraft().canAddVideo()) {
-            session.setExpectedInput(ExpectedInput.NONE);
-            renderWizard(message.getChatId(), session, "Video limit reached. You can keep at most 1 video.");
-            return;
-        }
-        session.getDraft().addVideo(fileId);
-        session.setExpectedInput(ExpectedInput.NONE);
-        renderWizard(message.getChatId(), session, "Video added.");
+        handleWizardMediaInput(message, session, account);
     }
 
     private void handleReportEvidenceInput(Message message, UserSession session, UserAccount account) {
@@ -355,6 +344,272 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         }
         session.setExpectedInput(ExpectedInput.NONE);
         renderReportConfirm(message.getChatId(), session);
+    }
+
+    private boolean shouldHandleWizardMediaUpload(Message message, UserSession session) {
+        if (session.getDraft() == null || session.getDraft().getStep() != ProfileDraft.WizardStep.MEDIA) {
+            return false;
+        }
+        return message.hasPhoto() || extractVideoFileId(message) != null;
+    }
+
+    private void handleWizardMediaInput(Message message, UserSession session, UserAccount account) {
+        if (session.getDraft() == null) {
+            openHome(message.getChatId(), account, session, "No active media editor. Start again.");
+            return;
+        }
+
+        if (message.hasPhoto()) {
+            if (!session.getDraft().canAddPhoto()) {
+                session.setExpectedInput(ExpectedInput.NONE);
+                renderWizard(message.getChatId(), session, "Photo limit reached. You can keep up to 3 photos, or 1 video plus 2 photos.");
+                return;
+            }
+            session.getDraft().addPhoto(largestPhoto(message.getPhoto()).getFileId());
+            session.setExpectedInput(ExpectedInput.NONE);
+            renderWizard(message.getChatId(), session, "Photo added.");
+            return;
+        }
+
+        String fileId = extractVideoFileId(message);
+        if (fileId != null) {
+            if (!session.getDraft().canAddVideo()) {
+                session.setExpectedInput(ExpectedInput.NONE);
+                renderWizard(message.getChatId(), session, "Video limit reached. You can keep at most 1 video.");
+                return;
+            }
+            session.getDraft().addVideo(fileId);
+            session.setExpectedInput(ExpectedInput.NONE);
+            renderWizard(message.getChatId(), session, "Video added.");
+            return;
+        }
+
+        renderWizard(message.getChatId(), session, "Send a photo or a video.");
+    }
+
+    private boolean handleWizardReplyMessage(Message message, UserSession session, UserAccount account) {
+        if (session.getDraft() == null || !message.hasText()) {
+            return false;
+        }
+
+        String text = Objects.requireNonNullElse(message.getText(), "").trim();
+        if (text.isEmpty()) {
+            return false;
+        }
+
+        ProfileDraft draft = session.getDraft();
+        switch (draft.getStep()) {
+            case GENDER -> {
+                if (isCancelChoice(text)) {
+                    cancelWizard(message.getChatId(), session, account);
+                    return true;
+                }
+                if (matchesChoice(text, "Male")) {
+                    draft.setGender(Gender.MALE);
+                } else if (matchesChoice(text, "Female")) {
+                    draft.setGender(Gender.FEMALE);
+                } else if (matchesChoice(text, "Other")) {
+                    draft.setGender(Gender.OTHER);
+                } else {
+                    renderWizard(message.getChatId(), session, "Choose your gender using the keyboard.");
+                    return true;
+                }
+                draft.setStep(ProfileDraft.WizardStep.LOOKING_FOR);
+                renderWizard(message.getChatId(), session, null);
+                return true;
+            }
+            case LOOKING_FOR -> {
+                if (isCancelChoice(text)) {
+                    cancelWizard(message.getChatId(), session, account);
+                    return true;
+                }
+                if (isBackChoice(text)) {
+                    goWizardBack(message.getChatId(), session);
+                    return true;
+                }
+                if (matchesChoice(text, "Men")) {
+                    draft.setLookingFor(PartnerPreference.MEN);
+                } else if (matchesChoice(text, "Women")) {
+                    draft.setLookingFor(PartnerPreference.WOMEN);
+                } else if (matchesChoice(text, "Everyone")) {
+                    draft.setLookingFor(PartnerPreference.EVERYONE);
+                } else {
+                    renderWizard(message.getChatId(), session, "Choose who you want to meet using the keyboard.");
+                    return true;
+                }
+                draft.setStep(ProfileDraft.WizardStep.GOAL);
+                renderWizard(message.getChatId(), session, null);
+                return true;
+            }
+            case GOAL -> {
+                if (isCancelChoice(text)) {
+                    cancelWizard(message.getChatId(), session, account);
+                    return true;
+                }
+                if (isBackChoice(text)) {
+                    goWizardBack(message.getChatId(), session);
+                    return true;
+                }
+                if (matchesChoice(text, "Dating")) {
+                    draft.setGoal(Goal.DATING);
+                } else if (matchesChoice(text, "Friendship")) {
+                    draft.setGoal(Goal.FRIENDSHIP);
+                } else if (matchesChoice(text, "Communication")) {
+                    draft.setGoal(Goal.LANGUAGE_EXCHANGE);
+                } else if (matchesChoice(text, "Video Calls")) {
+                    draft.setGoal(Goal.NETWORKING);
+                } else {
+                    renderWizard(message.getChatId(), session, "Choose the goal using the keyboard.");
+                    return true;
+                }
+                draft.setStep(ProfileDraft.WizardStep.NAME);
+                renderWizard(message.getChatId(), session, null);
+                return true;
+            }
+            case NAME -> {
+                if (isCancelChoice(text)) {
+                    cancelWizard(message.getChatId(), session, account);
+                    return true;
+                }
+                if (isBackChoice(text)) {
+                    goWizardBack(message.getChatId(), session);
+                    return true;
+                }
+                return false;
+            }
+            case AGE -> {
+                if (isCancelChoice(text)) {
+                    cancelWizard(message.getChatId(), session, account);
+                    return true;
+                }
+                if (isBackChoice(text)) {
+                    goWizardBack(message.getChatId(), session);
+                    return true;
+                }
+                return false;
+            }
+            case AGE_RANGE -> {
+                if (isCancelChoice(text)) {
+                    cancelWizard(message.getChatId(), session, account);
+                    return true;
+                }
+                if (isBackChoice(text)) {
+                    goWizardBack(message.getChatId(), session);
+                    return true;
+                }
+                return false;
+            }
+            case PRIVACY -> {
+                if (isCancelChoice(text)) {
+                    cancelWizard(message.getChatId(), session, account);
+                    return true;
+                }
+                if (isBackChoice(text)) {
+                    goWizardBack(message.getChatId(), session);
+                    return true;
+                }
+                if (matchesChoice(text, "Open")) {
+                    draft.setPrivacyMode(PrivacyMode.OPEN);
+                } else if (matchesChoice(text, "Private")) {
+                    draft.setPrivacyMode(PrivacyMode.PRIVATE);
+                } else {
+                    renderWizard(message.getChatId(), session, "Choose privacy mode using the keyboard.");
+                    return true;
+                }
+                draft.setStep(ProfileDraft.WizardStep.COUNTRY);
+                session.setCountryPage(0);
+                renderWizard(message.getChatId(), session, null);
+                return true;
+            }
+            case COUNTRY -> {
+                if (isCancelChoice(text)) {
+                    cancelWizard(message.getChatId(), session, account);
+                    return true;
+                }
+                if (isBackChoice(text)) {
+                    goWizardBack(message.getChatId(), session);
+                    return true;
+                }
+                if ("← Prev".equals(text)) {
+                    session.setCountryPage(Math.max(0, session.getCountryPage() - 1));
+                    renderWizard(message.getChatId(), session, null);
+                    return true;
+                }
+                if ("Next →".equals(text)) {
+                    session.setCountryPage(session.getCountryPage() + 1);
+                    renderWizard(message.getChatId(), session, null);
+                    return true;
+                }
+                Optional<Country> country = findCountryFromReply(text);
+                if (country.isEmpty()) {
+                    renderWizard(message.getChatId(), session, "Choose a country using the keyboard.");
+                    return true;
+                }
+                draft.setCountryCode(country.get().code());
+                draft.setCountryName(country.get().name());
+                draft.setCountryFlag(country.get().flag());
+                draft.setStep(ProfileDraft.WizardStep.MEDIA);
+                renderWizard(message.getChatId(), session, null);
+                return true;
+            }
+            case MEDIA -> {
+                if (isCancelChoice(text)) {
+                    cancelWizard(message.getChatId(), session, account);
+                    return true;
+                }
+                if (isBackChoice(text)) {
+                    goWizardBack(message.getChatId(), session);
+                    return true;
+                }
+                if (matchesChoice(text, "Remove last")) {
+                    draft.removeLastMedia();
+                    renderWizard(message.getChatId(), session, "Removed the last media item.");
+                    return true;
+                }
+                if (matchesChoice(text, "Clear all")) {
+                    draft.clearMedia();
+                    renderWizard(message.getChatId(), session, "Media cleared.");
+                    return true;
+                }
+                if (matchesChoice(text, "Preview profile")) {
+                    if (draft.getMedia().isEmpty()) {
+                        renderWizard(message.getChatId(), session, "Add at least one media item before preview.");
+                        return true;
+                    }
+                    draft.setStep(ProfileDraft.WizardStep.PREVIEW);
+                    renderWizard(message.getChatId(), session, null);
+                    return true;
+                }
+                renderWizard(message.getChatId(), session, "Send a photo or a video directly to the bot.");
+                return true;
+            }
+            case PREVIEW -> {
+                if (matchesChoice(text, "Publish profile")) {
+                    profileService.saveProfile(account.getUserId(), account.getUsername(), draft);
+                    session.setDraft(null);
+                    session.setExpectedInput(ExpectedInput.NONE);
+                    clearWizardUi(message.getChatId(), session, true);
+                    openMyProfile(message.getChatId(), session, account);
+                    return true;
+                }
+                if (matchesChoice(text, "Edit media")) {
+                    draft.setStep(ProfileDraft.WizardStep.MEDIA);
+                    renderWizard(message.getChatId(), session, "Update anything you want, then preview again.");
+                    return true;
+                }
+                if (isBackChoice(text)) {
+                    goWizardBack(message.getChatId(), session);
+                    return true;
+                }
+                if (isCancelChoice(text)) {
+                    cancelWizard(message.getChatId(), session, account);
+                    return true;
+                }
+                renderWizard(message.getChatId(), session, "Use the keyboard to publish or edit your profile.");
+                return true;
+            }
+        }
+        return false;
     }
 
     private void handleModeratorInput(Message message, UserSession session, boolean add, UserAccount account) {
@@ -614,15 +869,15 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             return;
         }
         if ("mediaPhoto".equals(parts[1])) {
-            session.setExpectedInput(ExpectedInput.MEDIA_PHOTO);
+            session.setExpectedInput(ExpectedInput.NONE);
             session.getDraft().setStep(ProfileDraft.WizardStep.MEDIA);
-            renderWizard(chatId, session, "Send a photo now.");
+            renderWizard(chatId, session, "Send a photo or video in a single message.");
             return;
         }
         if ("mediaVideo".equals(parts[1])) {
-            session.setExpectedInput(ExpectedInput.MEDIA_VIDEO);
+            session.setExpectedInput(ExpectedInput.NONE);
             session.getDraft().setStep(ProfileDraft.WizardStep.MEDIA);
-            renderWizard(chatId, session, "Send a video now.");
+            renderWizard(chatId, session, "Send a photo or video in a single message.");
             return;
         }
         if ("mediaRemove".equals(parts[1])) {
@@ -642,10 +897,22 @@ public class VideoCharterBot extends TelegramLongPollingBot {
                 renderWizard(chatId, session, "Add at least one media item before saving.");
                 return;
             }
+            session.setExpectedInput(ExpectedInput.NONE);
+            session.getDraft().setStep(ProfileDraft.WizardStep.PREVIEW);
+            renderDraftPreview(chatId, session, account, "This is how other users will see your profile.");
+            return;
+        }
+        if ("publish".equals(parts[1])) {
             profileService.saveProfile(account.getUserId(), account.getUsername(), session.getDraft());
             session.setDraft(null);
             session.setExpectedInput(ExpectedInput.NONE);
             openMyProfile(chatId, session, account);
+            return;
+        }
+        if ("editPreview".equals(parts[1])) {
+            session.setExpectedInput(ExpectedInput.NONE);
+            session.getDraft().setStep(ProfileDraft.WizardStep.MEDIA);
+            renderWizard(chatId, session, "Update anything you want, then preview again.");
         }
     }
 
@@ -665,6 +932,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             case PRIVACY -> session.getDraft().setStep(ProfileDraft.WizardStep.AGE_RANGE);
             case COUNTRY -> session.getDraft().setStep(ProfileDraft.WizardStep.PRIVACY);
             case MEDIA -> session.getDraft().setStep(ProfileDraft.WizardStep.COUNTRY);
+            case PREVIEW -> session.getDraft().setStep(ProfileDraft.WizardStep.MEDIA);
         }
         if (session.getDraft() == null) {
             renderMenu(chatId, session, "<b>Profile setup</b>\nCancelled.", keyboardHomeOnly());
@@ -760,6 +1028,13 @@ public class VideoCharterBot extends TelegramLongPollingBot {
                         ProfileScreenContext.MODERATION_REPORT,
                         true
                 );
+            }
+            case DRAFT_PREVIEW -> {
+                if (session.getDraft() == null) {
+                    openHome(chatId, account, session, "The draft preview is no longer available.");
+                    return;
+                }
+                renderDraftPreview(chatId, session, account, "This is how other users will see your profile.");
             }
             case NONE -> openHome(chatId, account, session, null);
         }
@@ -1021,6 +1296,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         session.resetReportDraft();
         session.setExpectedInput(ExpectedInput.NONE);
         session.resetProfileScreen();
+        clearWizardUi(chatId, session, true);
         session.setDraft(currentProfile == null ? ProfileDraft.empty() : ProfileDraft.fromProfile(currentProfile));
         session.getDraft().setStep(ProfileDraft.WizardStep.GENDER);
         renderWizard(chatId, session, "Let’s build your profile.");
@@ -1029,30 +1305,80 @@ public class VideoCharterBot extends TelegramLongPollingBot {
     private void renderWizard(long chatId, UserSession session, String extra) {
         ProfileDraft draft = session.getDraft();
         if (draft == null) {
+            clearWizardUi(chatId, session, true);
             renderMenu(chatId, session, "<b>Profile setup</b>\nNo active draft.", keyboardHomeOnly());
             return;
         }
         draft.setStep(Objects.requireNonNullElse(draft.getStep(), ProfileDraft.WizardStep.GENDER));
+        deleteMenuMessageSilently(chatId, session);
 
         switch (draft.getStep()) {
-            case GENDER -> renderMenu(chatId, session, uiFactory.wizardText(draft, extra == null ? "🧍 Choose your gender." : extra), keyboardGender(draft));
-            case LOOKING_FOR -> renderMenu(chatId, session, uiFactory.wizardText(draft, extra == null ? "💞 Who are you looking for?" : extra), keyboardLookingFor(draft));
-            case GOAL -> renderMenu(chatId, session, uiFactory.wizardText(draft, extra == null ? "🎯 Choose your goal." : extra), keyboardGoal(draft));
+            case GENDER -> {
+                session.setExpectedInput(ExpectedInput.NONE);
+                renderWizardPrompt(chatId, session,
+                        extra == null ? "🧍 Choose your gender." : extra,
+                        replyKeyboard(List.of(
+                                List.of("👨 Male", "👩 Female"),
+                                List.of("✨ Other"),
+                                List.of("↩️ Cancel")
+                        )));
+            }
+            case LOOKING_FOR -> {
+                session.setExpectedInput(ExpectedInput.NONE);
+                renderWizardPrompt(chatId, session,
+                        extra == null ? "💞 Who are you looking for?" : extra,
+                        replyKeyboard(List.of(
+                                List.of("👨 Men", "👩 Women"),
+                                List.of("🌍 Everyone"),
+                                List.of("⬅️ Back", "↩️ Cancel")
+                        )));
+            }
+            case GOAL -> {
+                session.setExpectedInput(ExpectedInput.NONE);
+                renderWizardPrompt(chatId, session,
+                        extra == null ? "🎯 Choose your goal." : extra,
+                        replyKeyboard(List.of(
+                                List.of("💘 Dating", "🤝 Friendship"),
+                                List.of("💬 Communication", "📹 Video Calls"),
+                                List.of("⬅️ Back", "↩️ Cancel")
+                        )));
+            }
             case NAME -> {
                 session.setExpectedInput(ExpectedInput.NAME);
-                renderMenu(chatId, session, uiFactory.wizardText(draft, extra == null ? "🪪 Send your name." : extra), keyboardWizardBack());
+                renderWizardPrompt(chatId, session,
+                        extra == null ? "🪪 Send your name." : extra,
+                        replyKeyboard(List.of(List.of("⬅️ Back", "↩️ Cancel"))));
             }
             case AGE -> {
                 session.setExpectedInput(ExpectedInput.AGE);
-                renderMenu(chatId, session, uiFactory.wizardText(draft, extra == null ? "🎂 Send your age." : extra), keyboardWizardBack());
+                renderWizardPrompt(chatId, session,
+                        extra == null ? "🎂 Send your age.\nMinors are not allowed to use the bot." : extra,
+                        replyKeyboard(List.of(List.of("⬅️ Back", "↩️ Cancel"))));
             }
             case AGE_RANGE -> {
                 session.setExpectedInput(ExpectedInput.AGE_RANGE);
-                renderMenu(chatId, session, uiFactory.wizardText(draft, extra == null ? "📏 Send preferred age as 18-30." : extra), keyboardWizardBack());
+                renderWizardPrompt(chatId, session,
+                        extra == null ? "📏 Send preferred age as 0-999 or 18-35." : extra,
+                        replyKeyboard(List.of(List.of("⬅️ Back", "↩️ Cancel"))));
             }
-            case PRIVACY -> renderMenu(chatId, session, uiFactory.wizardText(draft, extra == null ? "🔒 Choose privacy mode." : extra), keyboardPrivacy(draft));
+            case PRIVACY -> {
+                session.setExpectedInput(ExpectedInput.NONE);
+                renderWizardPrompt(chatId, session,
+                        extra == null ? "🔒 Choose privacy mode.\nPrivate — your username will be hidden.\nOpen — your username will be shown in the profile." : extra,
+                        replyKeyboard(List.of(
+                                List.of("🌐 Open", "🙈 Private"),
+                                List.of("⬅️ Back", "↩️ Cancel")
+                        )));
+            }
             case COUNTRY -> renderCountryPage(chatId, session, extra);
-            case MEDIA -> renderMenu(chatId, session, uiFactory.wizardText(draft, extra == null ? "🖼 Manage your media." : extra), keyboardMedia(draft));
+            case MEDIA -> {
+                session.setExpectedInput(ExpectedInput.NONE);
+                String prompt = extra == null
+                        ? "🖼 Send photos or one video directly to the bot.\nYou can keep up to 3 photos, or 1 video plus 2 photos.\nCurrent media: <b>" + draft.getMedia().size() + "</b>"
+                        : extra + "\n\nCurrent media: <b>" + draft.getMedia().size() + "</b>";
+                renderWizardPrompt(chatId, session, prompt, mediaReplyKeyboard(draft));
+            }
+            case PREVIEW -> renderDraftPreview(chatId, session, resolveAccountForChat(chatId), extra == null ? "This is how other users will see your profile." : extra);
         }
     }
 
@@ -1064,28 +1390,59 @@ public class VideoCharterBot extends TelegramLongPollingBot {
 
         int fromIndex = page * COUNTRIES_PER_PAGE;
         int toIndex = Math.min(fromIndex + COUNTRIES_PER_PAGE, countries.size());
-        List<List<ButtonSpec>> rows = new ArrayList<>();
+        List<List<String>> rows = new ArrayList<>();
         for (int index = fromIndex; index < toIndex; index += 2) {
-            List<ButtonSpec> row = new ArrayList<>();
+            List<String> row = new ArrayList<>();
             Country first = countries.get(index);
-            row.add(ButtonSpec.callback(first.flag() + " " + first.name(), "wizard:country:" + first.code()));
+            row.add(first.flag() + " " + first.name());
             if (index + 1 < toIndex) {
                 Country second = countries.get(index + 1);
-                row.add(ButtonSpec.callback(second.flag() + " " + second.name(), "wizard:country:" + second.code()));
+                row.add(second.flag() + " " + second.name());
             }
             rows.add(row);
         }
-        List<ButtonSpec> pager = new ArrayList<>();
+        List<String> pager = new ArrayList<>();
         if (page > 0) {
-            pager.add(ButtonSpec.callback("← Prev", "wizard:countryPage:" + (page - 1)));
+            pager.add("← Prev");
         }
-        pager.add(ButtonSpec.callback((page + 1) + "/" + totalPages, "noop"));
         if (page < totalPages - 1) {
-            pager.add(ButtonSpec.callback("Next →", "wizard:countryPage:" + (page + 1)));
+            pager.add("Next →");
         }
-        rows.add(pager);
-        rows.add(List.of(ButtonSpec.callback("← Back", "wizard:back"), ButtonSpec.callback("Cancel", "wizard:cancel")));
-        renderMenu(chatId, session, uiFactory.wizardText(session.getDraft(), (extra == null ? "🌍 Choose your country." : extra) + "\nPopular countries move up automatically."), uiFactory.keyboard(rows));
+        if (!pager.isEmpty()) {
+            rows.add(pager);
+        }
+        rows.add(List.of("⬅️ Back", "↩️ Cancel"));
+        renderWizardPrompt(chatId, session,
+                (extra == null ? "🌍 Choose your country." : extra) + "\nPopular countries move up automatically.",
+                replyKeyboard(rows));
+    }
+
+    private void renderDraftPreview(long chatId, UserSession session, UserAccount account, String extra) {
+        if (session.getDraft() == null) {
+            openHome(chatId, account, session, "No active draft to preview.");
+            return;
+        }
+        UserProfile preview = session.getDraft().toPreviewProfile(account.getUserId(), account.getUsername());
+        StringBuilder caption = new StringBuilder("<b>✅ Profile preview</b>\n");
+        if (extra != null && !extra.isBlank()) {
+            caption.append(extra).append("\n\n");
+        } else {
+            caption.append("\n");
+        }
+        caption.append(uiFactory.browseCard(preview));
+        renderProfileScreen(
+                chatId,
+                session,
+                preview,
+                caption.toString(),
+                null,
+                ProfileScreenContext.DRAFT_PREVIEW,
+                false
+        );
+        renderWizardPrompt(chatId, session, "Is everything correct?", replyKeyboard(List.of(
+                List.of("✅ Publish profile", "✏️ Edit media"),
+                List.of("⬅️ Back", "↩️ Cancel")
+        )));
     }
 
     private void openSearch(long chatId, UserSession session, UserAccount account, boolean reset) {
@@ -1138,7 +1495,6 @@ public class VideoCharterBot extends TelegramLongPollingBot {
 
         AdsgramAd ad = maybeAd.get();
         StringBuilder builder = new StringBuilder();
-        builder.append("<b>📣 Sponsored</b>\n\n");
         builder.append(ad.getTextHtml()).append("\n\n");
         builder.append("Viewed today: <b>").append(decision.viewedToday()).append("</b>\n");
         builder.append("Free limit today: <b>").append(decision.freeLimit()).append("</b>\n");
@@ -1326,7 +1682,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         }
         builder.append("<b>Moderation</b>\n");
         builder.append("Open reports: <b>").append(reports.size()).append("</b>\n");
-        builder.append("Use inline actions to review reports");
+        builder.append("Use the buttons below to review reports");
         if (profileService.isAdmin(account.getUserId())) {
             builder.append(", manage moderators and subscription settings");
         }
@@ -1531,7 +1887,89 @@ public class VideoCharterBot extends TelegramLongPollingBot {
     }
 
     private void renderMenu(long chatId, UserSession session, String text, InlineKeyboardMarkup keyboard) {
+        clearWizardUi(chatId, session, true);
         renderTextScreen(chatId, session, text, keyboard);
+    }
+
+    private void renderWizardPrompt(long chatId, UserSession session, String text, ReplyKeyboardMarkup keyboard) {
+        Integer previousPromptMessageId = session.getWizardPromptMessageId();
+
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId);
+        message.setParseMode(ParseMode.HTML);
+        message.setText(text);
+        message.setReplyMarkup(keyboard);
+        try {
+            Message sent = execute(message);
+            session.setWizardPromptMessageId(sent.getMessageId());
+            if (previousPromptMessageId != null && !previousPromptMessageId.equals(sent.getMessageId())) {
+                deleteMessageSilently(chatId, previousPromptMessageId);
+            }
+        } catch (TelegramApiException exception) {
+            throw new IllegalStateException("Unable to render wizard prompt", exception);
+        }
+    }
+
+    private ReplyKeyboardMarkup replyKeyboard(List<List<String>> rows) {
+        List<KeyboardRow> keyboardRows = new ArrayList<>();
+        for (List<String> rowValues : rows) {
+            KeyboardRow row = new KeyboardRow();
+            for (String value : rowValues) {
+                KeyboardButton button = new KeyboardButton();
+                button.setText(value);
+                row.add(button);
+            }
+            keyboardRows.add(row);
+        }
+        ReplyKeyboardMarkup markup = new ReplyKeyboardMarkup();
+        markup.setKeyboard(keyboardRows);
+        markup.setResizeKeyboard(true);
+        markup.setSelective(false);
+        markup.setOneTimeKeyboard(false);
+        return markup;
+    }
+
+    private ReplyKeyboardMarkup mediaReplyKeyboard(ProfileDraft draft) {
+        List<List<String>> rows = new ArrayList<>();
+        if (!draft.getMedia().isEmpty()) {
+            rows.add(List.of("↩️ Remove last", "🧹 Clear all"));
+        }
+        rows.add(List.of("✅ Preview profile"));
+        rows.add(List.of("⬅️ Back", "↩️ Cancel"));
+        return replyKeyboard(rows);
+    }
+
+    private void clearWizardUi(long chatId, UserSession session, boolean removeKeyboard) {
+        Integer wizardPromptMessageId = session.getWizardPromptMessageId();
+        session.setWizardPromptMessageId(null);
+        if (wizardPromptMessageId != null) {
+            deleteMessageSilently(chatId, wizardPromptMessageId);
+        }
+        if (removeKeyboard && wizardPromptMessageId != null) {
+            sendReplyKeyboardRemoval(chatId);
+        }
+    }
+
+    private void sendReplyKeyboardRemoval(long chatId) {
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId);
+        message.setText(" ");
+        ReplyKeyboardRemove remove = new ReplyKeyboardRemove();
+        remove.setRemoveKeyboard(true);
+        message.setReplyMarkup(remove);
+        try {
+            Message sent = execute(message);
+            deleteMessageSilently(chatId, sent.getMessageId());
+        } catch (TelegramApiException ignored) {
+        }
+    }
+
+    private void deleteMenuMessageSilently(long chatId, UserSession session) {
+        Integer menuMessageId = session.getMenuMessageId();
+        if (menuMessageId != null) {
+            deleteMessageSilently(chatId, menuMessageId);
+            session.setMenuMessageId(null);
+        }
     }
 
     private void renderTextScreen(long chatId, UserSession session, String text, InlineKeyboardMarkup keyboard) {
@@ -1841,12 +2279,58 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         return normalized.startsWith("https://") || normalized.startsWith("http://");
     }
 
+    private void cancelWizard(long chatId, UserSession session, UserAccount account) {
+        session.setDraft(null);
+        session.setExpectedInput(ExpectedInput.NONE);
+        clearWizardUi(chatId, session, true);
+        openHome(chatId, account, session, "Profile setup cancelled.");
+    }
+
+    private boolean isBackChoice(String text) {
+        return matchesChoice(text, "Back");
+    }
+
+    private boolean isCancelChoice(String text) {
+        return matchesChoice(text, "Cancel");
+    }
+
+    private boolean matchesChoice(String text, String label) {
+        if (text == null || label == null) {
+            return false;
+        }
+        String normalizedText = text.replaceAll("^[^\\p{L}\\p{N}]+\\s*", "").trim();
+        String normalizedLabel = label.trim();
+        return normalizedText.equalsIgnoreCase(normalizedLabel);
+    }
+
+    private Optional<Country> findCountryFromReply(String text) {
+        if (text == null || text.isBlank()) {
+            return Optional.empty();
+        }
+        String normalizedText = text.trim();
+        return profileService.getSortedCountries().stream()
+                .filter(country -> normalizedText.equalsIgnoreCase(country.code())
+                        || normalizedText.equalsIgnoreCase(country.name())
+                        || normalizedText.equalsIgnoreCase(country.flag() + " " + country.name()))
+                .findFirst();
+    }
+
     private String normalizeAdButtonLabel(String label, String fallback) {
         if (label == null || label.isBlank()) {
             return fallback;
         }
         String trimmed = label.trim();
         return trimmed.length() <= 32 ? trimmed : trimmed.substring(0, 29) + "...";
+    }
+
+    private UserAccount resolveAccountForChat(long chatId) {
+        UserAccount account = profileService.getAccount(chatId);
+        if (account != null) {
+            return account;
+        }
+        UserAccount fallback = new UserAccount();
+        fallback.setUserId(chatId);
+        return fallback;
     }
 
     private String extractVideoFileId(Message message) {
@@ -1917,6 +2401,14 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         ));
     }
 
+    private InlineKeyboardMarkup keyboardDraftPreview() {
+        return uiFactory.keyboard(List.of(
+                List.of(ButtonSpec.callback("✅ Publish profile", "wizard:publish")),
+                List.of(ButtonSpec.callback("✏️ Edit media", "wizard:editPreview"), ButtonSpec.callback("⬅️ Back", "wizard:back")),
+                List.of(ButtonSpec.callback("🏠 Home", "home"))
+        ));
+    }
+
     private InlineKeyboardMarkup keyboardGender(ProfileDraft draft) {
         return uiFactory.keyboard(List.of(
                 List.of(ButtonSpec.callback(mark(draft.getGender() == Gender.MALE, "Male"), "wizard:gender:MALE"),
@@ -1961,20 +2453,10 @@ public class VideoCharterBot extends TelegramLongPollingBot {
 
     private InlineKeyboardMarkup keyboardMedia(ProfileDraft draft) {
         List<List<ButtonSpec>> rows = new ArrayList<>();
-        List<ButtonSpec> addRow = new ArrayList<>();
-        if (draft.canAddPhoto()) {
-            addRow.add(ButtonSpec.callback("📷 Add photo", "wizard:mediaPhoto"));
-        }
-        if (draft.canAddVideo()) {
-            addRow.add(ButtonSpec.callback("🎥 Add video", "wizard:mediaVideo"));
-        }
-        if (!addRow.isEmpty()) {
-            rows.add(addRow);
-        }
         if (!draft.getMedia().isEmpty()) {
             rows.add(List.of(ButtonSpec.callback("↩️ Remove last", "wizard:mediaRemove"), ButtonSpec.callback("🧹 Clear all", "wizard:mediaClear")));
-            rows.add(List.of(ButtonSpec.callback("✅ Save profile", "wizard:save")));
         }
+        rows.add(List.of(ButtonSpec.callback("✅ Preview profile", "wizard:save")));
         rows.add(List.of(ButtonSpec.callback("⬅️ Back", "wizard:back"), ButtonSpec.callback("↩️ Cancel", "wizard:cancel")));
         return uiFactory.keyboard(rows);
     }
@@ -2035,9 +2517,6 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         if (isHttpUrl(ad.getClickUrl())) {
             rows.add(List.of(ButtonSpec.url(normalizeAdButtonLabel(ad.getButtonName(), "🔗 Open offer"), ad.getClickUrl())));
         }
-        if (isHttpUrl(ad.getRewardUrl())) {
-            rows.add(List.of(ButtonSpec.url(normalizeAdButtonLabel(ad.getRewardButtonName(), "🎁 Claim reward"), ad.getRewardUrl())));
-        }
         rows.add(List.of(ButtonSpec.callback("▶️ Continue", "browse:continueAd")));
         rows.add(List.of(ButtonSpec.callback("💎 Disable ads", "menu:ads"), ButtonSpec.callback("🏠 Home", "home")));
         return uiFactory.keyboard(rows);
@@ -2047,9 +2526,6 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         List<List<ButtonSpec>> rows = new ArrayList<>();
         if (isHttpUrl(ad.getClickUrl())) {
             rows.add(List.of(ButtonSpec.url(normalizeAdButtonLabel(ad.getButtonName(), "🔗 Open offer"), ad.getClickUrl())));
-        }
-        if (isHttpUrl(ad.getRewardUrl())) {
-            rows.add(List.of(ButtonSpec.url(normalizeAdButtonLabel(ad.getRewardButtonName(), "🎁 Claim reward"), ad.getRewardUrl())));
         }
         rows.add(List.of(ButtonSpec.callback("🏠 Home", "home")));
         return uiFactory.keyboard(rows);

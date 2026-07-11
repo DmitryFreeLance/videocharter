@@ -20,7 +20,8 @@ public class ProfileDraft {
         AGE_RANGE,
         PRIVACY,
         COUNTRY,
-        MEDIA
+        MEDIA,
+        PREVIEW
     }
 
     private Gender gender;
@@ -73,14 +74,18 @@ public class ProfileDraft {
         profile.setGoal(goal);
         profile.setName(name);
         profile.setAge(age == null ? 0 : age);
-        profile.setPreferredAgeMin(preferredAgeMin == null ? 18 : preferredAgeMin);
-        profile.setPreferredAgeMax(preferredAgeMax == null ? 30 : preferredAgeMax);
+        profile.setPreferredAgeMin(preferredAgeMin == null ? 0 : preferredAgeMin);
+        profile.setPreferredAgeMax(preferredAgeMax == null ? 999 : preferredAgeMax);
         profile.setPrivacyMode(privacyMode);
         profile.setCountryCode(countryCode);
         profile.setCountryName(countryName);
         profile.setCountryFlag(countryFlag);
         profile.setMedia(new ArrayList<>(media));
         return profile;
+    }
+
+    public UserProfile toPreviewProfile(long userId, String username) {
+        return toProfile(userId, username, null);
     }
 
     public int getPhotoCount() {

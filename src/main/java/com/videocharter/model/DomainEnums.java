@@ -40,8 +40,8 @@ public final class DomainEnums {
     public enum Goal {
         DATING("Dating"),
         FRIENDSHIP("Friendship"),
-        LANGUAGE_EXCHANGE("Language exchange"),
-        NETWORKING("Networking");
+        LANGUAGE_EXCHANGE("Communication"),
+        NETWORKING("Video Calls");
 
         private final String label;
 

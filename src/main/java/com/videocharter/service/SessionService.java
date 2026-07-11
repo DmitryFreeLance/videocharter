@@ -40,7 +40,8 @@ public class SessionService {
             MY_PROFILE,
             BROWSE,
             LIKES,
-            MODERATION_REPORT
+            MODERATION_REPORT,
+            DRAFT_PREVIEW
         }
 
         private Integer menuMessageId;
@@ -66,6 +67,7 @@ public class SessionService {
         private int adminUsersPage;
         private Integer pendingSubscriptionPriceDays;
         private Integer subscriptionInvoiceMessageId;
+        private Integer wizardPromptMessageId;
 
         public Integer getMenuMessageId() {
             return menuMessageId;
@@ -237,6 +239,14 @@ public class SessionService {
 
         public void setSubscriptionInvoiceMessageId(Integer subscriptionInvoiceMessageId) {
             this.subscriptionInvoiceMessageId = subscriptionInvoiceMessageId;
+        }
+
+        public Integer getWizardPromptMessageId() {
+            return wizardPromptMessageId;
+        }
+
+        public void setWizardPromptMessageId(Integer wizardPromptMessageId) {
+            this.wizardPromptMessageId = wizardPromptMessageId;
         }
 
         public void resetReportDraft() {

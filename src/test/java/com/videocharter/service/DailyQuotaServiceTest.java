@@ -24,7 +24,7 @@ class DailyQuotaServiceTest {
     }
 
     @Test
-    void shouldShowAdOnEveryOddPostLimitView() {
+    void shouldShowAdOnEveryPostLimitView() {
         UserAccount account = new UserAccount();
         LocalDate monday = LocalDate.of(2026, 7, 6);
 
@@ -34,7 +34,7 @@ class DailyQuotaServiceTest {
         }
 
         assertTrue(service.registerView(account, monday).adRequired(), "11th view should trigger ad");
-        assertFalse(service.registerView(account, monday).adRequired(), "12th view should not trigger ad");
+        assertTrue(service.registerView(account, monday).adRequired(), "12th view should trigger ad");
         assertTrue(service.registerView(account, monday).adRequired(), "13th view should trigger ad");
     }
 }

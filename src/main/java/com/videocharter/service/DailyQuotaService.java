@@ -27,7 +27,7 @@ public class DailyQuotaService {
         account.setViewsToday(account.getViewsToday() + 1);
         int freeLimit = freeLimit(date);
         int postLimitIndex = Math.max(0, account.getViewsToday() - freeLimit);
-        boolean adRequired = postLimitIndex > 0 && postLimitIndex % 2 == 1;
+        boolean adRequired = postLimitIndex > 0;
         return new ViewingDecision(freeLimit, account.getViewsToday(), adRequired);
     }
 }
