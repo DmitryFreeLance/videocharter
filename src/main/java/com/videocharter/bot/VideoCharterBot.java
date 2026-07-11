@@ -1967,6 +1967,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         markup.setResizeKeyboard(true);
         markup.setSelective(false);
         markup.setOneTimeKeyboard(false);
+        markup.setIsPersistent(true);
         return markup;
     }
 
