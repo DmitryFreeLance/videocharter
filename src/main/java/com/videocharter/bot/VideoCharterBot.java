@@ -39,12 +39,13 @@ import org.telegram.telegrambots.bots.TelegramLongPollingBot;
 import org.telegram.telegrambots.meta.api.methods.AnswerCallbackQuery;
 import org.telegram.telegrambots.meta.api.methods.AnswerPreCheckoutQuery;
 import org.telegram.telegrambots.meta.api.methods.ParseMode;
+import org.telegram.telegrambots.meta.api.methods.GetUserProfilePhotos;
 import org.telegram.telegrambots.meta.api.methods.invoices.SendInvoice;
+import org.telegram.telegrambots.meta.api.methods.send.SendMediaGroup;
 import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
 import org.telegram.telegrambots.meta.api.methods.send.SendVideo;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage;
-import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageMedia;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.objects.InputFile;
@@ -61,6 +62,7 @@ import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardMar
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.ReplyKeyboardRemove;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardButton;
 import org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.KeyboardRow;
+import org.telegram.telegrambots.meta.api.objects.UserProfilePhotos;
 import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 public class VideoCharterBot extends TelegramLongPollingBot {
@@ -288,7 +290,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             session.getDraft().setAge(age);
             session.getDraft().setStep(ProfileDraft.WizardStep.AGE_RANGE);
             session.setExpectedInput(ExpectedInput.NONE);
-            renderWizard(message.getChatId(), session, "Send the preferred age range, for example <b>0-999</b> or <b>18-35</b>.");
+            renderWizard(message.getChatId(), session, "Send the preferred age range, for example <b>18-35</b>.");
         } catch (Exception ignored) {
             renderWizard(message.getChatId(), session, "Age must be a number between 0 and 999. Minors are not allowed to use the bot.");
         }
@@ -307,14 +309,14 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         int min = Integer.parseInt(matcher.group(1));
         int max = Integer.parseInt(matcher.group(2));
         if (min < 0 || max > 999 || min > max) {
-            renderWizard(message.getChatId(), session, "Preferred age must stay within 0-999 and the minimum must not be greater than the maximum.");
+            renderWizard(message.getChatId(), session, "Preferred age must be sent as a range like <b>18-35</b>, and the minimum must not be greater than the maximum.");
             return;
         }
         session.getDraft().setPreferredAgeMin(min);
         session.getDraft().setPreferredAgeMax(max);
         session.getDraft().setStep(ProfileDraft.WizardStep.PRIVACY);
         session.setExpectedInput(ExpectedInput.NONE);
-        renderWizard(message.getChatId(), session, "Choose your privacy mode.");
+        renderWizard(message.getChatId(), session, "Choose privacy mode.\nPrivate — your username will be hidden.\nOpen — your username will be shown in the profile.");
     }
 
     private void handlePhotoInput(Message message, UserSession session, UserAccount account) {
@@ -513,7 +515,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
                 } else if (matchesChoice(text, "Private")) {
                     draft.setPrivacyMode(PrivacyMode.PRIVATE);
                 } else {
-                    renderWizard(message.getChatId(), session, "Choose privacy mode using the keyboard.");
+                    renderWizard(message.getChatId(), session, "Choose privacy mode.\nPrivate — your username will be hidden.\nOpen — your username will be shown in the profile.");
                     return true;
                 }
                 draft.setStep(ProfileDraft.WizardStep.COUNTRY);
@@ -571,6 +573,10 @@ public class VideoCharterBot extends TelegramLongPollingBot {
                     renderWizard(message.getChatId(), session, "Media cleared.");
                     return true;
                 }
+                if (matchesChoice(text, "Use Telegram photo")) {
+                    addTelegramProfilePhoto(message.getChatId(), session, account);
+                    return true;
+                }
                 if (matchesChoice(text, "Preview profile")) {
                     if (draft.getMedia().isEmpty()) {
                         renderWizard(message.getChatId(), session, "Add at least one media item before preview.");
@@ -580,7 +586,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
                     renderWizard(message.getChatId(), session, null);
                     return true;
                 }
-                renderWizard(message.getChatId(), session, "Send a photo or a video directly to the bot.");
+                renderWizard(message.getChatId(), session, "Send a photo or a video directly to the bot, or use the Telegram photo button.");
                 return true;
             }
             case PREVIEW -> {
@@ -1358,7 +1364,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             case AGE_RANGE -> {
                 session.setExpectedInput(ExpectedInput.AGE_RANGE);
                 renderWizardPrompt(chatId, session,
-                        extra == null ? "📏 Send preferred age as 0-999 or 18-35." : extra,
+                        extra == null ? "📏 Send preferred age, for example 18-35." : extra,
                         replyKeyboard(List.of(List.of("⬅️ Back", "↩️ Cancel"))));
             }
             case PRIVACY -> {
@@ -1374,7 +1380,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             case MEDIA -> {
                 session.setExpectedInput(ExpectedInput.NONE);
                 String prompt = extra == null
-                        ? "🖼 Send photos or one video directly to the bot.\nYou can keep up to 3 photos, or 1 video plus 2 photos.\nCurrent media: <b>" + draft.getMedia().size() + "</b>"
+                        ? "🖼 Send photos or one video directly to the bot.\nYou can keep up to 3 photos, or 1 video plus 2 photos.\nYou can also use your Telegram profile photo.\nCurrent media: <b>" + draft.getMedia().size() + "</b>"
                         : extra + "\n\nCurrent media: <b>" + draft.getMedia().size() + "</b>";
                 renderWizardPrompt(chatId, session, prompt, mediaReplyKeyboard(draft));
             }
@@ -1931,6 +1937,9 @@ public class VideoCharterBot extends TelegramLongPollingBot {
 
     private ReplyKeyboardMarkup mediaReplyKeyboard(ProfileDraft draft) {
         List<List<String>> rows = new ArrayList<>();
+        if (draft.canAddPhoto()) {
+            rows.add(List.of("📱 Use Telegram photo"));
+        }
         if (!draft.getMedia().isEmpty()) {
             rows.add(List.of("↩️ Remove last", "🧹 Clear all"));
         }
@@ -2090,80 +2099,77 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         session.setCurrentScreenProfileUserId(profile.getUserId());
 
         if (media == null || media.isEmpty()) {
+            cleanupCardMessages(chatId, session);
             session.setScreenKind(UserSession.ScreenKind.TEXT);
             renderTextScreen(chatId, session, caption, keyboard);
             return;
         }
 
-        int mediaIndex = Math.max(0, Math.min(session.getCurrentMediaIndex(), media.size() - 1));
-        session.setCurrentMediaIndex(mediaIndex);
-        MediaAttachment primaryMedia = media.get(mediaIndex);
-        String fullCaption = media.size() > 1
-                ? caption + "\n\nMedia: <b>" + (mediaIndex + 1) + "/" + media.size() + "</b>"
-                : caption;
-        InlineKeyboardMarkup decoratedKeyboard = withMediaNavigation(keyboard, mediaIndex, media.size());
-        Integer previousMessageId = session.getMenuMessageId();
-        Integer targetMessageId = previousMessageId;
-
-        if (targetMessageId != null && session.getScreenKind() == UserSession.ScreenKind.TEXT) {
-            deleteMessageSilently(chatId, targetMessageId);
-            targetMessageId = null;
-            session.setMenuMessageId(null);
-        }
-
-        if (targetMessageId != null) {
-            EditMessageMedia edit = new EditMessageMedia();
-            edit.setChatId(chatId);
-            edit.setMessageId(targetMessageId);
-            edit.setReplyMarkup(decoratedKeyboard);
-            edit.setMedia(buildInputMedia(primaryMedia, trimCaption(fullCaption)));
-            try {
-                execute(edit);
-                session.setMenuMessageId(targetMessageId);
-                session.setScreenKind(primaryMedia.getType() == MediaType.PHOTO
-                        ? UserSession.ScreenKind.PHOTO
-                        : UserSession.ScreenKind.VIDEO);
-                return;
-            } catch (TelegramApiException exception) {
-                if (isMessageNotModified(exception)) {
-                    session.setMenuMessageId(targetMessageId);
-                    session.setScreenKind(primaryMedia.getType() == MediaType.PHOTO
-                            ? UserSession.ScreenKind.PHOTO
-                            : UserSession.ScreenKind.VIDEO);
-                    return;
-                }
-            }
-        }
-
         try {
-            Message sent;
-            if (primaryMedia.getType() == MediaType.PHOTO) {
-                SendPhoto sendPhoto = new SendPhoto();
-                sendPhoto.setChatId(chatId);
-                sendPhoto.setPhoto(new InputFile(primaryMedia.getFileId()));
-                sendPhoto.setCaption(trimCaption(fullCaption));
-                sendPhoto.setParseMode(ParseMode.HTML);
-                sendPhoto.setReplyMarkup(decoratedKeyboard);
-                sent = execute(sendPhoto);
+            cleanupCardMessages(chatId, session);
+            List<Message> sentMessages = new ArrayList<>();
+            if (media.size() == 1) {
+                MediaAttachment single = media.getFirst();
+                Message sent;
+                if (single.getType() == MediaType.PHOTO) {
+                    SendPhoto sendPhoto = new SendPhoto();
+                    sendPhoto.setChatId(chatId);
+                    sendPhoto.setPhoto(new InputFile(single.getFileId()));
+                    sendPhoto.setCaption(trimCaption(caption));
+                    sendPhoto.setParseMode(ParseMode.HTML);
+                    sent = execute(sendPhoto);
+                } else {
+                    SendVideo sendVideo = new SendVideo();
+                    sendVideo.setChatId(chatId);
+                    sendVideo.setVideo(new InputFile(single.getFileId()));
+                    sendVideo.setCaption(trimCaption(caption));
+                    sendVideo.setParseMode(ParseMode.HTML);
+                    sent = execute(sendVideo);
+                }
+                sentMessages.add(sent);
             } else {
-                SendVideo sendVideo = new SendVideo();
-                sendVideo.setChatId(chatId);
-                sendVideo.setVideo(new InputFile(primaryMedia.getFileId()));
-                sendVideo.setCaption(trimCaption(fullCaption));
-                sendVideo.setParseMode(ParseMode.HTML);
-                sendVideo.setReplyMarkup(decoratedKeyboard);
-                sent = execute(sendVideo);
+                SendMediaGroup sendMediaGroup = new SendMediaGroup();
+                sendMediaGroup.setChatId(chatId);
+
+                List<InputMedia> album = new ArrayList<>();
+                for (int index = 0; index < media.size(); index++) {
+                    String mediaCaption = index == 0 ? trimCaption(caption) : null;
+                    album.add(buildInputMedia(media.get(index), mediaCaption));
+                }
+                sendMediaGroup.setMedias(album);
+                sentMessages = execute(sendMediaGroup);
             }
-            session.setMenuMessageId(sent.getMessageId());
-            session.setScreenKind(primaryMedia.getType() == MediaType.PHOTO
-                    ? UserSession.ScreenKind.PHOTO
-                    : UserSession.ScreenKind.VIDEO);
-            if (previousMessageId != null && !previousMessageId.equals(sent.getMessageId())) {
-                deleteMessageSilently(chatId, previousMessageId);
+
+            session.getActiveCardMessageIds().clear();
+            for (Message sentMessage : sentMessages) {
+                session.getActiveCardMessageIds().add(sentMessage.getMessageId());
+            }
+
+            if (keyboard != null) {
+                renderTextScreen(chatId, session, profileControlsText(context), keyboard);
+            } else {
+                Integer previousMessageId = session.getMenuMessageId();
+                if (previousMessageId != null) {
+                    deleteMessageSilently(chatId, previousMessageId);
+                    session.setMenuMessageId(null);
+                }
+                session.setScreenKind(UserSession.ScreenKind.TEXT);
             }
         } catch (TelegramApiException exception) {
-            renderTextScreen(chatId, session, caption, decoratedKeyboard);
+            cleanupCardMessages(chatId, session);
+            renderTextScreen(chatId, session, caption, keyboard);
         }
+    }
+
+    private String profileControlsText(ProfileScreenContext context) {
+        return switch (context) {
+            case MY_PROFILE -> "<b>Your profile</b>\nUse the buttons below.";
+            case BROWSE -> "<b>Viewing profile</b>\nUse the buttons below.";
+            case LIKES -> "<b>Incoming like</b>\nUse the buttons below.";
+            case MODERATION_REPORT -> "<b>Moderation</b>\nReview the profile below.";
+            case DRAFT_PREVIEW -> "<b>Profile preview</b>";
+            case NONE -> "<b>Choose an action below.</b>";
+        };
     }
 
     private InlineKeyboardMarkup withMediaNavigation(InlineKeyboardMarkup keyboard, int mediaIndex, int mediaCount) {
@@ -2223,6 +2229,33 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             deleteMessageSilently(chatId, messageId);
         }
         session.getActiveCardMessageIds().clear();
+    }
+
+    private void addTelegramProfilePhoto(long chatId, UserSession session, UserAccount account) {
+        if (session.getDraft() == null) {
+            openHome(chatId, account, session, "No active media editor. Start again.");
+            return;
+        }
+        if (!session.getDraft().canAddPhoto()) {
+            renderWizard(chatId, session, "Photo limit reached. You can keep up to 3 photos, or 1 video plus 2 photos.");
+            return;
+        }
+
+        GetUserProfilePhotos request = new GetUserProfilePhotos();
+        request.setUserId(account.getUserId());
+        request.setLimit(1);
+        try {
+            UserProfilePhotos photos = execute(request);
+            if (photos == null || photos.getPhotos() == null || photos.getPhotos().isEmpty() || photos.getPhotos().getFirst().isEmpty()) {
+                renderWizard(chatId, session, "Your Telegram profile does not have a photo that I can use right now.");
+                return;
+            }
+            List<PhotoSize> firstSet = photos.getPhotos().getFirst();
+            session.getDraft().addPhoto(largestPhoto(firstSet).getFileId());
+            renderWizard(chatId, session, "Telegram profile photo added.");
+        } catch (TelegramApiException exception) {
+            renderWizard(chatId, session, "I could not load your Telegram profile photo right now. Try sending a photo manually.");
+        }
     }
 
     private void clearSubscriptionInvoiceMessage(long chatId, UserSession session) {
