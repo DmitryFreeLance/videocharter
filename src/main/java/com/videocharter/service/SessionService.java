@@ -60,6 +60,7 @@ public class SessionService {
         private int countryPage;
         private Long currentBrowseProfileId;
         private Long pendingProfileAfterAd;
+        private boolean adInterstitialActive;
         private Long reportTargetUserId;
         private ReportReason reportReason;
         private String reportEvidenceText;
@@ -163,6 +164,14 @@ public class SessionService {
 
         public void setPendingProfileAfterAd(Long pendingProfileAfterAd) {
             this.pendingProfileAfterAd = pendingProfileAfterAd;
+        }
+
+        public boolean isAdInterstitialActive() {
+            return adInterstitialActive;
+        }
+
+        public void setAdInterstitialActive(boolean adInterstitialActive) {
+            this.adInterstitialActive = adInterstitialActive;
         }
 
         public Long getReportTargetUserId() {
@@ -270,6 +279,7 @@ public class SessionService {
             seenProfileIds.clear();
             currentBrowseProfileId = null;
             pendingProfileAfterAd = null;
+            adInterstitialActive = false;
         }
 
         public void resetProfileScreen() {

@@ -1077,6 +1077,47 @@ public class VideoCharterBot extends TelegramLongPollingBot {
 
     private void handleBrowseAction(long chatId, UserSession session, UserAccount account, String data) {
         Long currentProfileId = session.getCurrentBrowseProfileId();
+        if (session.isAdInterstitialActive()) {
+            switch (data) {
+                case "browse:skip", "browse:continueAd" -> {
+                    Long pending = session.getPendingProfileAfterAd();
+                    if (pending == null) {
+                        session.setAdInterstitialActive(false);
+                        showNextBrowseCandidate(chatId, session, account, false);
+                        return;
+                    }
+                    UserProfile profile = profileService.getProfile(pending);
+                    session.setPendingProfileAfterAd(null);
+                    session.setAdInterstitialActive(false);
+                    if (profile == null) {
+                        showNextBrowseCandidate(chatId, session, account, true);
+                        return;
+                    }
+                    showBrowseProfile(chatId, session, profile, true);
+                    return;
+                }
+                case "browse:back" -> {
+                    session.setPendingProfileAfterAd(null);
+                    session.setAdInterstitialActive(false);
+                    if (currentProfileId == null) {
+                        openSearch(chatId, session, account, false);
+                        return;
+                    }
+                    UserProfile current = profileService.getProfile(currentProfileId);
+                    if (current == null) {
+                        showNextBrowseCandidate(chatId, session, account, false);
+                        return;
+                    }
+                    showBrowseProfile(chatId, session, current, false);
+                    return;
+                }
+                case "browse:like", "browse:report" -> {
+                    return;
+                }
+                default -> {
+                }
+            }
+        }
         switch (data) {
             case "browse:like" -> {
                 if (currentProfileId == null) {
@@ -1507,13 +1548,14 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             if (decision.adRequired()) {
                 cleanupCardMessages(chatId, session);
                 session.setPendingProfileAfterAd(next.getUserId());
+                session.setAdInterstitialActive(true);
                 if (!renderAdsgramInterstitial(chatId, session, account.getUserId(), decision)) {
                     renderAnchoredTextCard(
                             chatId,
                             session,
-                            "✨ 📣",
+                            "✨ 🔎",
                             uiFactory.adInterstitialText(decision.freeLimit(), decision.viewedToday()),
-                            keyboardAdInterstitial(),
+                            keyboardBrowse(),
                             false
                     );
                 }
@@ -1636,6 +1678,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
 
     private void showBrowseProfile(long chatId, UserSession session, UserProfile profile, boolean pushHistory) {
         cleanupCardMessages(chatId, session);
+        session.setAdInterstitialActive(false);
         if (pushHistory && session.getCurrentBrowseProfileId() != null && !session.getCurrentBrowseProfileId().equals(profile.getUserId())) {
             session.getBrowseHistory().push(session.getCurrentBrowseProfileId());
         }
@@ -2263,6 +2306,12 @@ public class VideoCharterBot extends TelegramLongPollingBot {
     }
 
     private void showTransientKeyboard(long chatId, UserSession session, InlineKeyboardMarkup keyboard, String anchorText) {
+        Map<String, String> actions = extractButtonActions(keyboard);
+        if (session.getMenuMessageId() != null
+                && !actions.isEmpty()
+                && actions.equals(session.getCurrentButtonActions())) {
+            return;
+        }
         ReplyKeyboardMarkup replyKeyboard = replyKeyboardFromInline(session, keyboard);
         if (replyKeyboard == null) {
             return;
@@ -2284,6 +2333,25 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         } catch (TelegramApiException exception) {
             throw new IllegalStateException("Unable to attach keyboard", exception);
         }
+    }
+
+    private Map<String, String> extractButtonActions(InlineKeyboardMarkup keyboard) {
+        Map<String, String> actions = new LinkedHashMap<>();
+        if (keyboard == null || keyboard.getKeyboard() == null || keyboard.getKeyboard().isEmpty()) {
+            return actions;
+        }
+        for (List<org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton> inlineRow : keyboard.getKeyboard()) {
+            for (org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton button : inlineRow) {
+                if (button == null || button.getText() == null || button.getText().isBlank()) {
+                    continue;
+                }
+                if (button.getCallbackData() == null || "noop".equals(button.getCallbackData())) {
+                    continue;
+                }
+                actions.put(button.getText(), button.getCallbackData());
+            }
+        }
+        return actions;
     }
 
     private String keyboardAnchorText(ProfileScreenContext context) {
@@ -2589,6 +2657,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         return uiFactory.keyboard(List.of(
                 List.of(ButtonSpec.callback("❤️ Like", "browse:like"), ButtonSpec.callback("🚩 Report", "browse:report")),
                 List.of(ButtonSpec.callback("⏮ Back", "browse:back"), ButtonSpec.callback("⏭ Skip", "browse:skip")),
+                List.of(ButtonSpec.callback("💎 Disable ads", "menu:ads")),
                 List.of(ButtonSpec.callback("🏠 Home", "home"))
         ));
     }
@@ -2631,19 +2700,11 @@ public class VideoCharterBot extends TelegramLongPollingBot {
     }
 
     private InlineKeyboardMarkup keyboardAdInterstitial() {
-        return uiFactory.keyboard(List.of(
-                List.of(ButtonSpec.callback("💎 Disable ads", "menu:ads")),
-                List.of(ButtonSpec.callback("⏮ Back", "browse:back"), ButtonSpec.callback("⏭ Skip", "browse:continueAd")),
-                List.of(ButtonSpec.callback("🏠 Home", "home"))
-        ));
+        return keyboardBrowse();
     }
 
     private InlineKeyboardMarkup keyboardAdsgramInterstitial(AdsgramAd ad) {
-        List<List<ButtonSpec>> rows = new ArrayList<>();
-        rows.add(List.of(ButtonSpec.callback("💎 Disable ads", "menu:ads")));
-        rows.add(List.of(ButtonSpec.callback("⏮ Back", "browse:back"), ButtonSpec.callback("⏭ Skip", "browse:continueAd")));
-        rows.add(List.of(ButtonSpec.callback("🏠 Home", "home")));
-        return uiFactory.keyboard(rows);
+        return keyboardBrowse();
     }
 
     private InlineKeyboardMarkup keyboardAdsgramTest(AdsgramAd ad) {
