@@ -1508,7 +1508,14 @@ public class VideoCharterBot extends TelegramLongPollingBot {
                 cleanupCardMessages(chatId, session);
                 session.setPendingProfileAfterAd(next.getUserId());
                 if (!renderAdsgramInterstitial(chatId, session, account.getUserId(), decision)) {
-                    renderMenu(chatId, session, uiFactory.adInterstitialText(decision.freeLimit(), decision.viewedToday()), keyboardAdInterstitial());
+                    renderAnchoredTextCard(
+                            chatId,
+                            session,
+                            "✨ 📣",
+                            uiFactory.adInterstitialText(decision.freeLimit(), decision.viewedToday()),
+                            keyboardAdInterstitial(),
+                            false
+                    );
                 }
                 return;
             }
@@ -1541,7 +1548,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             return true;
         }
 
-        renderProtectedTextScreen(chatId, session, builder.toString(), keyboard);
+        renderAnchoredTextCard(chatId, session, "✨ 📣", builder.toString(), keyboard, true);
         return true;
     }
 
@@ -1564,7 +1571,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             renderProtectedPhotoScreen(chatId, session, ad.getImageUrl(), trimCaption(text.toString()), keyboard);
             return;
         }
-        renderProtectedTextScreen(chatId, session, text.toString(), keyboard);
+        renderAnchoredTextCard(chatId, session, "✨ 📣", text.toString(), keyboard, true);
     }
 
     private void openDebugBrowse(long chatId, UserSession session, UserAccount account) {
@@ -2123,6 +2130,48 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             session.setScreenKind(UserSession.ScreenKind.TEXT);
         } catch (TelegramApiException exception) {
             renderProtectedTextScreen(chatId, session, caption, keyboard);
+        }
+    }
+
+    private void renderAnchoredTextCard(long chatId,
+                                        UserSession session,
+                                        String anchorText,
+                                        String text,
+                                        InlineKeyboardMarkup keyboard,
+                                        boolean protectContent) {
+        clearSubscriptionInvoiceMessage(chatId, session);
+        cleanupCardMessages(chatId, session);
+        if (keyboard != null) {
+            showTransientKeyboard(chatId, session, keyboard, anchorText);
+        } else {
+            Integer previousMessageId = session.getMenuMessageId();
+            if (previousMessageId != null) {
+                deleteMessageSilently(chatId, previousMessageId);
+                session.setMenuMessageId(null);
+            }
+            session.getCurrentButtonActions().clear();
+            session.setScreenKind(UserSession.ScreenKind.TEXT);
+        }
+
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId);
+        message.setParseMode(ParseMode.HTML);
+        message.setText(text);
+        if (protectContent) {
+            message.setProtectContent(true);
+        }
+        try {
+            Message sent = execute(message);
+            session.getActiveCardMessageIds().clear();
+            session.getActiveCardMessageIds().add(sent.getMessageId());
+            session.setScreenKind(UserSession.ScreenKind.TEXT);
+        } catch (TelegramApiException exception) {
+            cleanupCardMessages(chatId, session);
+            if (protectContent) {
+                renderProtectedTextScreen(chatId, session, text, keyboard);
+            } else {
+                renderTextScreen(chatId, session, text, keyboard);
+            }
         }
     }
 
