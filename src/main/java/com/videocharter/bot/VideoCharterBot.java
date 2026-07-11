@@ -2074,6 +2074,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             session.setMenuMessageId(null);
         }
         cleanupCardMessages(chatId, session);
+        showTransientKeyboard(chatId, session, keyboard, "✨ 📣");
 
         SendPhoto sendPhoto = new SendPhoto();
         sendPhoto.setChatId(chatId);
@@ -2085,7 +2086,6 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             Message sent = execute(sendPhoto);
             session.getActiveCardMessageIds().add(sent.getMessageId());
             session.setScreenKind(UserSession.ScreenKind.TEXT);
-            showTransientKeyboard(chatId, session, keyboard);
         } catch (TelegramApiException exception) {
             renderProtectedTextScreen(chatId, session, caption, keyboard);
         }
@@ -2119,6 +2119,17 @@ public class VideoCharterBot extends TelegramLongPollingBot {
 
         try {
             cleanupCardMessages(chatId, session);
+            if (keyboard != null) {
+                showTransientKeyboard(chatId, session, keyboard, keyboardAnchorText(context));
+            } else {
+                Integer previousMessageId = session.getMenuMessageId();
+                if (previousMessageId != null) {
+                    deleteMessageSilently(chatId, previousMessageId);
+                    session.setMenuMessageId(null);
+                }
+                session.getCurrentButtonActions().clear();
+                session.setScreenKind(UserSession.ScreenKind.TEXT);
+            }
             List<Message> sentMessages = new ArrayList<>();
             if (media.size() == 1) {
                 MediaAttachment single = media.getFirst();
@@ -2156,25 +2167,13 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             for (Message sentMessage : sentMessages) {
                 session.getActiveCardMessageIds().add(sentMessage.getMessageId());
             }
-
-            if (keyboard != null) {
-                showTransientKeyboard(chatId, session, keyboard);
-            } else {
-                Integer previousMessageId = session.getMenuMessageId();
-                if (previousMessageId != null) {
-                    deleteMessageSilently(chatId, previousMessageId);
-                    session.setMenuMessageId(null);
-                }
-                session.getCurrentButtonActions().clear();
-                session.setScreenKind(UserSession.ScreenKind.TEXT);
-            }
         } catch (TelegramApiException exception) {
             cleanupCardMessages(chatId, session);
             renderTextScreen(chatId, session, caption, keyboard);
         }
     }
 
-    private void showTransientKeyboard(long chatId, UserSession session, InlineKeyboardMarkup keyboard) {
+    private void showTransientKeyboard(long chatId, UserSession session, InlineKeyboardMarkup keyboard, String anchorText) {
         ReplyKeyboardMarkup replyKeyboard = replyKeyboardFromInline(session, keyboard);
         if (replyKeyboard == null) {
             return;
@@ -2188,15 +2187,26 @@ public class VideoCharterBot extends TelegramLongPollingBot {
 
         SendMessage message = new SendMessage();
         message.setChatId(chatId);
-        message.setText(" ");
+        message.setText(anchorText == null || anchorText.isBlank() ? "✨" : anchorText);
         message.setReplyMarkup(replyKeyboard);
         try {
             Message sent = execute(message);
-            deleteMessageSilently(chatId, sent.getMessageId());
+            session.setMenuMessageId(sent.getMessageId());
             session.setScreenKind(UserSession.ScreenKind.TEXT);
         } catch (TelegramApiException exception) {
             throw new IllegalStateException("Unable to attach keyboard", exception);
         }
+    }
+
+    private String keyboardAnchorText(ProfileScreenContext context) {
+        return switch (context) {
+            case MY_PROFILE -> "✨ 👤";
+            case BROWSE -> "✨ 🔎";
+            case LIKES -> "✨ 💌";
+            case MODERATION_REPORT -> "✨ 🛡";
+            case DRAFT_PREVIEW -> "✨ ✅";
+            case NONE -> "✨";
+        };
     }
 
     private InputMedia buildInputMedia(MediaAttachment attachment, String caption) {
