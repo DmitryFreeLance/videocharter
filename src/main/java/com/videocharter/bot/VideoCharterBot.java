@@ -2264,10 +2264,6 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         }
 
         Integer previousMessageId = session.getMenuMessageId();
-        if (previousMessageId != null) {
-            deleteMessageSilently(chatId, previousMessageId);
-            session.setMenuMessageId(null);
-        }
 
         SendMessage message = new SendMessage();
         message.setChatId(chatId);
@@ -2277,6 +2273,9 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             Message sent = execute(message);
             session.setMenuMessageId(sent.getMessageId());
             session.setScreenKind(UserSession.ScreenKind.TEXT);
+            if (previousMessageId != null && previousMessageId != sent.getMessageId()) {
+                deleteMessageSilently(chatId, previousMessageId);
+            }
         } catch (TelegramApiException exception) {
             throw new IllegalStateException("Unable to attach keyboard", exception);
         }
