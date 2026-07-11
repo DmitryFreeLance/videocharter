@@ -43,6 +43,7 @@ public class AdsgramService {
     private final BotConfig config;
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
+    private volatile AdsgramAd cachedAd;
 
     public AdsgramService(BotConfig config) {
         this.config = config;
@@ -76,8 +77,13 @@ public class AdsgramService {
             }
         }
 
-        return candidates.stream()
+        Optional<AdsgramAd> best = candidates.stream()
                 .max(Comparator.comparingInt(AdsgramAd::getPriorityScore));
+        if (best.isPresent()) {
+            cachedAd = best.get();
+            return best;
+        }
+        return Optional.ofNullable(cachedAd);
     }
 
     private Optional<AdsgramAd> requestAd(long telegramUserId, String blockId, String language) {

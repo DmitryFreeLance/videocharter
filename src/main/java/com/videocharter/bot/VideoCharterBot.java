@@ -2085,7 +2085,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             Message sent = execute(sendPhoto);
             session.getActiveCardMessageIds().add(sent.getMessageId());
             session.setScreenKind(UserSession.ScreenKind.TEXT);
-            renderTextScreen(chatId, session, "<b>Use the buttons below.</b>", keyboard);
+            showTransientKeyboard(chatId, session, keyboard);
         } catch (TelegramApiException exception) {
             renderProtectedTextScreen(chatId, session, caption, keyboard);
         }
@@ -2158,7 +2158,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             }
 
             if (keyboard != null) {
-                renderTextScreen(chatId, session, profileControlsText(context), keyboard);
+                showTransientKeyboard(chatId, session, keyboard);
             } else {
                 Integer previousMessageId = session.getMenuMessageId();
                 if (previousMessageId != null) {
@@ -2174,15 +2174,29 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         }
     }
 
-    private String profileControlsText(ProfileScreenContext context) {
-        return switch (context) {
-            case MY_PROFILE -> "<b>Your profile</b>\nUse the buttons below.";
-            case BROWSE -> "<b>Viewing profile</b>\nUse the buttons below.";
-            case LIKES -> "<b>Incoming like</b>\nUse the buttons below.";
-            case MODERATION_REPORT -> "<b>Moderation</b>\nReview the profile below.";
-            case DRAFT_PREVIEW -> "<b>Profile preview</b>";
-            case NONE -> "<b>Choose an action below.</b>";
-        };
+    private void showTransientKeyboard(long chatId, UserSession session, InlineKeyboardMarkup keyboard) {
+        ReplyKeyboardMarkup replyKeyboard = replyKeyboardFromInline(session, keyboard);
+        if (replyKeyboard == null) {
+            return;
+        }
+
+        Integer previousMessageId = session.getMenuMessageId();
+        if (previousMessageId != null) {
+            deleteMessageSilently(chatId, previousMessageId);
+            session.setMenuMessageId(null);
+        }
+
+        SendMessage message = new SendMessage();
+        message.setChatId(chatId);
+        message.setText(" ");
+        message.setReplyMarkup(replyKeyboard);
+        try {
+            Message sent = execute(message);
+            deleteMessageSilently(chatId, sent.getMessageId());
+            session.setScreenKind(UserSession.ScreenKind.TEXT);
+        } catch (TelegramApiException exception) {
+            throw new IllegalStateException("Unable to attach keyboard", exception);
+        }
     }
 
     private InputMedia buildInputMedia(MediaAttachment attachment, String caption) {
