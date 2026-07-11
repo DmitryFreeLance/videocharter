@@ -2571,15 +2571,17 @@ public class VideoCharterBot extends TelegramLongPollingBot {
 
     private InlineKeyboardMarkup keyboardAdInterstitial() {
         return uiFactory.keyboard(List.of(
-                List.of(ButtonSpec.callback("▶️ Continue", "browse:continueAd")),
-                List.of(ButtonSpec.callback("💎 Disable ads", "menu:ads"), ButtonSpec.callback("🏠 Home", "home"))
+                List.of(ButtonSpec.callback("💎 Disable ads", "menu:ads")),
+                List.of(ButtonSpec.callback("⏮ Back", "browse:back"), ButtonSpec.callback("⏭ Skip", "browse:continueAd")),
+                List.of(ButtonSpec.callback("🏠 Home", "home"))
         ));
     }
 
     private InlineKeyboardMarkup keyboardAdsgramInterstitial(AdsgramAd ad) {
         List<List<ButtonSpec>> rows = new ArrayList<>();
-        rows.add(List.of(ButtonSpec.callback("▶️ Continue", "browse:continueAd")));
-        rows.add(List.of(ButtonSpec.callback("💎 Disable ads", "menu:ads"), ButtonSpec.callback("🏠 Home", "home")));
+        rows.add(List.of(ButtonSpec.callback("💎 Disable ads", "menu:ads")));
+        rows.add(List.of(ButtonSpec.callback("⏮ Back", "browse:back"), ButtonSpec.callback("⏭ Skip", "browse:continueAd")));
+        rows.add(List.of(ButtonSpec.callback("🏠 Home", "home")));
         return uiFactory.keyboard(rows);
     }
 
