@@ -213,7 +213,6 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         }
 
         if (handleCurrentButton(message, session, account)) {
-            deleteIncomingMessage(message);
             return;
         }
 
@@ -723,6 +722,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         if (action == null) {
             return false;
         }
+        deleteIncomingMessage(message);
         if (limiterService.isTooFast(account.getUserId())) {
             return true;
         }
