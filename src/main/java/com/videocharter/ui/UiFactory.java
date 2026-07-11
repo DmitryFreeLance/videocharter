@@ -72,6 +72,9 @@ public class UiFactory {
         builder.append(ownProfile ? "<b>My profile</b>\n" : "<b>Profile</b>\n");
         builder.append(Htmls.escape(profile.getName())).append(", ").append(profile.getAge()).append("\n");
         builder.append(profile.getCountryFlag()).append(" ").append(Htmls.escape(profile.getCountryName())).append("\n");
+        if (profile.getAbout() != null && !profile.getAbout().isBlank()) {
+            builder.append("About: <b>").append(Htmls.escape(profile.getAbout())).append("</b>\n");
+        }
         builder.append("Gender: <b>").append(profile.getGender().label()).append("</b>\n");
         builder.append("Looking for: <b>").append(profile.getLookingFor().label()).append("</b>\n");
         builder.append("Goal: <b>").append(profile.getGoal().label()).append("</b>\n");
@@ -88,12 +91,10 @@ public class UiFactory {
 
     public String browseCard(UserProfile profile) {
         StringBuilder builder = new StringBuilder();
-        builder.append("<b>").append(Htmls.escape(profile.getName())).append(", ").append(profile.getAge()).append("</b>\n");
-        builder.append(profile.getCountryFlag()).append(" ").append(Htmls.escape(profile.getCountryName())).append("\n");
-        builder.append("Goal: <b>").append(profile.getGoal().label()).append("</b>\n");
-        builder.append("Looking for: <b>").append(profile.getLookingFor().label()).append("</b>");
-        if (profile.getPrivacyMode().name().equals("OPEN") && profile.getUsername() != null && !profile.getUsername().isBlank()) {
-            builder.append("\nUsername: @").append(Htmls.escape(profile.getUsername()));
+        builder.append(Htmls.escape(profile.getName())).append(", ").append(profile.getAge()).append(", ");
+        builder.append(Htmls.escape(profile.getCountryName() == null ? "" : profile.getCountryName()));
+        if (profile.getAbout() != null && !profile.getAbout().isBlank()) {
+            builder.append(" - ").append(Htmls.escape(profile.getAbout()));
         }
         return builder.toString();
     }
@@ -207,6 +208,7 @@ public class UiFactory {
         builder.append("Looking for: ").append(labelOrDash(draft.getLookingFor() == null ? null : draft.getLookingFor().label())).append("\n");
         builder.append("Goal: ").append(labelOrDash(draft.getGoal() == null ? null : draft.getGoal().label())).append("\n");
         builder.append("Name: ").append(labelOrDash(draft.getName())).append("\n");
+        builder.append("About: ").append(labelOrDash(draft.getAbout())).append("\n");
         builder.append("Age: ").append(draft.getAge() == null ? "—" : draft.getAge()).append("\n");
         builder.append("Preferred age: ");
         if (draft.getPreferredAgeMin() == null || draft.getPreferredAgeMax() == null) {

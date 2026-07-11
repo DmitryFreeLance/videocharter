@@ -18,6 +18,7 @@ public class SessionService {
     public enum ExpectedInput {
         NONE,
         NAME,
+        ABOUT,
         AGE,
         AGE_RANGE,
         MEDIA_PHOTO,

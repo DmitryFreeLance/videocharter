@@ -16,6 +16,7 @@ public class ProfileDraft {
         LOOKING_FOR,
         GOAL,
         NAME,
+        ABOUT,
         AGE,
         AGE_RANGE,
         PRIVACY,
@@ -28,6 +29,7 @@ public class ProfileDraft {
     private PartnerPreference lookingFor;
     private Goal goal;
     private String name;
+    private String about;
     private Integer age;
     private Integer preferredAgeMin;
     private Integer preferredAgeMax;
@@ -48,6 +50,7 @@ public class ProfileDraft {
         draft.lookingFor = profile.getLookingFor();
         draft.goal = profile.getGoal();
         draft.name = profile.getName();
+        draft.about = profile.getAbout();
         draft.age = profile.getAge();
         draft.preferredAgeMin = profile.getPreferredAgeMin();
         draft.preferredAgeMax = profile.getPreferredAgeMax();
@@ -73,6 +76,7 @@ public class ProfileDraft {
         profile.setLookingFor(lookingFor);
         profile.setGoal(goal);
         profile.setName(name);
+        profile.setAbout(about);
         profile.setAge(age == null ? 0 : age);
         profile.setPreferredAgeMin(preferredAgeMin == null ? 0 : preferredAgeMin);
         profile.setPreferredAgeMax(preferredAgeMax == null ? 999 : preferredAgeMax);
@@ -155,6 +159,14 @@ public class ProfileDraft {
 
     public void setName(String name) {
         this.name = name;
+    }
+
+    public String getAbout() {
+        return about;
+    }
+
+    public void setAbout(String about) {
+        this.about = about;
     }
 
     public Integer getAge() {

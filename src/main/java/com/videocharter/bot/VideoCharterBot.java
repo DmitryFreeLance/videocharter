@@ -252,6 +252,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
     private void handleExpectedInput(Message message, UserSession session, UserAccount account) {
         switch (session.getExpectedInput()) {
             case NAME -> handleNameInput(message, session, account);
+            case ABOUT -> handleAboutInput(message, session, account);
             case AGE -> handleAgeInput(message, session, account);
             case AGE_RANGE -> handleAgeRangeInput(message, session, account);
             case MEDIA_PHOTO -> handlePhotoInput(message, session, account);
@@ -281,6 +282,22 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         session.getDraft().setStep(ProfileDraft.WizardStep.AGE);
         session.setExpectedInput(ExpectedInput.NONE);
         renderWizard(message.getChatId(), session, "Now send your age as a number.");
+    }
+
+    private void handleAboutInput(Message message, UserSession session, UserAccount account) {
+        if (session.getDraft() == null) {
+            openHome(message.getChatId(), account, session, "No active profile setup. Start again.");
+            return;
+        }
+        String value = message.getText();
+        if (value == null || value.isBlank() || value.length() > 300) {
+            renderWizard(message.getChatId(), session, "Send a short text about yourself between 1 and 300 characters.");
+            return;
+        }
+        session.getDraft().setAbout(value.trim());
+        session.getDraft().setStep(ProfileDraft.WizardStep.MEDIA);
+        session.setExpectedInput(ExpectedInput.NONE);
+        renderWizard(message.getChatId(), session, "🖼 Now add your media.");
     }
 
     private void handleAgeInput(Message message, UserSession session, UserAccount account) {
@@ -485,6 +502,17 @@ public class VideoCharterBot extends TelegramLongPollingBot {
                 }
                 return false;
             }
+            case ABOUT -> {
+                if (isCancelChoice(text)) {
+                    cancelWizard(message.getChatId(), session, account);
+                    return true;
+                }
+                if (isBackChoice(text)) {
+                    goWizardBack(message.getChatId(), session);
+                    return true;
+                }
+                return false;
+            }
             case AGE -> {
                 if (isCancelChoice(text)) {
                     cancelWizard(message.getChatId(), session, account);
@@ -556,7 +584,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
                 draft.setCountryCode(country.get().code());
                 draft.setCountryName(country.get().name());
                 draft.setCountryFlag(country.get().flag());
-                draft.setStep(ProfileDraft.WizardStep.MEDIA);
+                draft.setStep(ProfileDraft.WizardStep.ABOUT);
                 renderWizard(message.getChatId(), session, null);
                 return true;
             }
@@ -870,8 +898,8 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             session.getDraft().setCountryCode(country.get().code());
             session.getDraft().setCountryName(country.get().name());
             session.getDraft().setCountryFlag(country.get().flag());
-            session.getDraft().setStep(ProfileDraft.WizardStep.MEDIA);
-            renderWizard(chatId, session, "Add up to 3 photos, or 1 video plus 2 photos.");
+            session.getDraft().setStep(ProfileDraft.WizardStep.ABOUT);
+            renderWizard(chatId, session, "💬 Send a short text about yourself.");
             return;
         }
         if ("mediaPhoto".equals(parts[1])) {
@@ -933,11 +961,12 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             case LOOKING_FOR -> session.getDraft().setStep(ProfileDraft.WizardStep.GENDER);
             case GOAL -> session.getDraft().setStep(ProfileDraft.WizardStep.LOOKING_FOR);
             case NAME -> session.getDraft().setStep(ProfileDraft.WizardStep.GOAL);
+            case ABOUT -> session.getDraft().setStep(ProfileDraft.WizardStep.COUNTRY);
             case AGE -> session.getDraft().setStep(ProfileDraft.WizardStep.NAME);
             case AGE_RANGE -> session.getDraft().setStep(ProfileDraft.WizardStep.AGE);
             case PRIVACY -> session.getDraft().setStep(ProfileDraft.WizardStep.AGE_RANGE);
             case COUNTRY -> session.getDraft().setStep(ProfileDraft.WizardStep.PRIVACY);
-            case MEDIA -> session.getDraft().setStep(ProfileDraft.WizardStep.COUNTRY);
+            case MEDIA -> session.getDraft().setStep(ProfileDraft.WizardStep.ABOUT);
             case PREVIEW -> session.getDraft().setStep(ProfileDraft.WizardStep.MEDIA);
         }
         if (session.getDraft() == null) {
@@ -1344,6 +1373,12 @@ public class VideoCharterBot extends TelegramLongPollingBot {
                 session.setExpectedInput(ExpectedInput.NAME);
                 renderWizardPrompt(chatId, session,
                         extra == null ? "🪪 Send your name." : extra,
+                        replyKeyboard(List.of(List.of("⬅️ Back", "↩️ Cancel"))));
+            }
+            case ABOUT -> {
+                session.setExpectedInput(ExpectedInput.ABOUT);
+                renderWizardPrompt(chatId, session,
+                        extra == null ? "💬 Send a short text about yourself." : extra,
                         replyKeyboard(List.of(List.of("⬅️ Back", "↩️ Cancel"))));
             }
             case AGE -> {
@@ -2390,8 +2425,9 @@ public class VideoCharterBot extends TelegramLongPollingBot {
     private InlineKeyboardMarkup keyboardHome(boolean hasProfile, boolean moderationEnabled) {
         List<List<ButtonSpec>> rows = new ArrayList<>();
         if (hasProfile) {
-            rows.add(List.of(ButtonSpec.callback("👤 My profile", "menu:profile"), ButtonSpec.callback("🔎 Browse", "menu:search")));
-            rows.add(List.of(ButtonSpec.callback("💌 Who likes me", "menu:likes"), ButtonSpec.callback("💎 Disable ads", "menu:ads")));
+            rows.add(List.of(ButtonSpec.callback("View profiles 👀", "menu:search")));
+            rows.add(List.of(ButtonSpec.callback("👤 My profile", "menu:profile"), ButtonSpec.callback("💌 Who likes me", "menu:likes")));
+            rows.add(List.of(ButtonSpec.callback("💎 Disable ads", "menu:ads")));
         } else {
             rows.add(List.of(ButtonSpec.callback("✨ Create profile", "menu:create")));
             rows.add(List.of(ButtonSpec.callback("💎 Disable ads", "menu:ads")));
@@ -2415,6 +2451,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
 
     private InlineKeyboardMarkup keyboardMyProfile() {
         return uiFactory.keyboard(List.of(
+                List.of(ButtonSpec.callback("View profiles 👀", "menu:search")),
                 List.of(ButtonSpec.callback("✏️ Rebuild profile", "profile:rebuild"), ButtonSpec.callback("🖼 Manage media", "profile:media")),
                 List.of(ButtonSpec.callback("🗑 Delete profile", "profile:delete"), ButtonSpec.callback("🏠 Home", "home"))
         ));
@@ -2497,6 +2534,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
 
     private InlineKeyboardMarkup keyboardAfterBrowseEmpty() {
         return uiFactory.keyboard(List.of(
+                List.of(ButtonSpec.callback("View profiles 👀", "menu:search")),
                 List.of(ButtonSpec.callback("👤 My profile", "menu:profile"), ButtonSpec.callback("🏠 Home", "home"))
         ));
     }

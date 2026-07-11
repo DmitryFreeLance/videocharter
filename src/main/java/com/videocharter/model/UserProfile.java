@@ -16,6 +16,7 @@ public class UserProfile {
     private Gender gender;
     private PartnerPreference lookingFor;
     private Goal goal;
+    private String about;
     private int age;
     private int preferredAgeMin;
     private int preferredAgeMax;
@@ -73,6 +74,14 @@ public class UserProfile {
 
     public void setGoal(Goal goal) {
         this.goal = goal;
+    }
+
+    public String getAbout() {
+        return about;
+    }
+
+    public void setAbout(String about) {
+        this.about = about;
     }
 
     public int getAge() {
