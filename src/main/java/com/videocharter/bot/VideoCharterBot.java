@@ -30,7 +30,9 @@ import com.videocharter.ui.UiFactory.ButtonSpec;
 import com.videocharter.util.Htmls;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.regex.Matcher;
@@ -46,7 +48,6 @@ import org.telegram.telegrambots.meta.api.methods.send.SendMessage;
 import org.telegram.telegrambots.meta.api.methods.send.SendPhoto;
 import org.telegram.telegrambots.meta.api.methods.send.SendVideo;
 import org.telegram.telegrambots.meta.api.methods.updatingmessages.DeleteMessage;
-import org.telegram.telegrambots.meta.api.methods.updatingmessages.EditMessageText;
 import org.telegram.telegrambots.meta.api.objects.CallbackQuery;
 import org.telegram.telegrambots.meta.api.objects.InputFile;
 import org.telegram.telegrambots.meta.api.objects.Message;
@@ -208,6 +209,11 @@ public class VideoCharterBot extends TelegramLongPollingBot {
                 deleteIncomingMessage(message);
             }
             openHome(message.getChatId(), account, session, null);
+            return;
+        }
+
+        if (handleCurrentButton(message, session, account)) {
+            deleteIncomingMessage(message);
             return;
         }
 
@@ -677,6 +683,25 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         }
     }
 
+    private boolean handleCurrentButton(Message message, UserSession session, UserAccount account) {
+        if (!message.hasText()) {
+            return false;
+        }
+        String text = Objects.requireNonNullElse(message.getText(), "").trim();
+        if (text.isEmpty()) {
+            return false;
+        }
+        String action = session.getCurrentButtonActions().get(text);
+        if (action == null) {
+            return false;
+        }
+        if (limiterService.isTooFast(account.getUserId())) {
+            return true;
+        }
+        dispatchAction(message.getChatId(), session, account, action);
+        return true;
+    }
+
     private void handleCallback(CallbackQuery callbackQuery) {
         User user = callbackQuery.getFrom();
         UserSession session = userSession(user);
@@ -693,127 +718,102 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             return;
         }
 
-        session.setMenuMessageId(callbackQuery.getMessage().getMessageId());
         String data = callbackQuery.getData();
-
-        if ("noop".equals(data)) {
-            answerCallback(callbackQuery, null);
-            return;
+        if (!"noop".equals(data)) {
+            dispatchAction(callbackQuery.getMessage().getChatId(), session, account, data);
         }
+        answerCallback(callbackQuery, null);
+    }
 
+    private void dispatchAction(long chatId, UserSession session, UserAccount account, String data) {
         if ("home".equals(data)) {
-            answerCallback(callbackQuery, null);
             session.setExpectedInput(ExpectedInput.NONE);
             session.setDraft(null);
             session.resetReportDraft();
             session.resetProfileScreen();
-            cleanupCardMessages(callbackQuery.getMessage().getChatId(), session);
-            openHome(callbackQuery.getMessage().getChatId(), account, session, null);
+            cleanupCardMessages(chatId, session);
+            openHome(chatId, account, session, null);
             return;
         }
-
         if ("menu:create".equals(data)) {
-            answerCallback(callbackQuery, null);
-            startWizard(callbackQuery.getMessage().getChatId(), session, null);
+            startWizard(chatId, session, null);
             return;
         }
         if ("menu:profile".equals(data)) {
-            answerCallback(callbackQuery, null);
-            openMyProfile(callbackQuery.getMessage().getChatId(), session, account);
+            openMyProfile(chatId, session, account);
             return;
         }
         if ("menu:search".equals(data)) {
-            answerCallback(callbackQuery, null);
-            openSearch(callbackQuery.getMessage().getChatId(), session, account, true);
+            openSearch(chatId, session, account, true);
             return;
         }
         if ("menu:likes".equals(data)) {
-            answerCallback(callbackQuery, null);
-            openLikes(callbackQuery.getMessage().getChatId(), session, account);
+            openLikes(chatId, session, account);
             return;
         }
         if ("menu:ads".equals(data)) {
-            answerCallback(callbackQuery, null);
-            openSubscription(callbackQuery.getMessage().getChatId(), session, account, null);
+            openSubscription(chatId, session, account, null);
             return;
         }
         if ("menu:moderation".equals(data)) {
-            answerCallback(callbackQuery, null);
-            openModerationHome(callbackQuery.getMessage().getChatId(), session, account, null);
+            openModerationHome(chatId, session, account, null);
             return;
         }
-
         if ("profile:rebuild".equals(data)) {
-            answerCallback(callbackQuery, null);
-            startWizard(callbackQuery.getMessage().getChatId(), session, profileService.getProfile(user.getId()));
+            startWizard(chatId, session, profileService.getProfile(account.getUserId()));
             return;
         }
         if ("profile:media".equals(data)) {
-            answerCallback(callbackQuery, null);
-            UserProfile current = profileService.getProfile(user.getId());
+            UserProfile current = profileService.getProfile(account.getUserId());
             if (current == null) {
-                openHome(callbackQuery.getMessage().getChatId(), account, session, "Create a profile first.");
+                openHome(chatId, account, session, "Create a profile first.");
                 return;
             }
             ProfileDraft draft = ProfileDraft.fromProfile(current);
             draft.setStep(ProfileDraft.WizardStep.MEDIA);
             session.setDraft(draft);
             session.setExpectedInput(ExpectedInput.NONE);
-            renderWizard(callbackQuery.getMessage().getChatId(), session, "Manage your media.");
+            renderWizard(chatId, session, "Manage your media.");
             return;
         }
         if ("profile:delete".equals(data)) {
-            answerCallback(callbackQuery, null);
-            renderMenu(callbackQuery.getMessage().getChatId(), session, "<b>Delete profile</b>\nThis will remove your profile, likes and matches.", keyboardDeleteProfileConfirm());
+            renderMenu(chatId, session, "<b>Delete profile</b>\nThis will remove your profile, likes and matches.", keyboardDeleteProfileConfirm());
             return;
         }
         if ("profile:delete:confirm".equals(data)) {
-            answerCallback(callbackQuery, "Deleted");
-            cleanupCardMessages(callbackQuery.getMessage().getChatId(), session);
-            profileService.deleteProfile(user.getId());
+            cleanupCardMessages(chatId, session);
+            profileService.deleteProfile(account.getUserId());
             session.setDraft(null);
-            openHome(callbackQuery.getMessage().getChatId(), account, session, "Your profile was deleted.");
+            openHome(chatId, account, session, "Your profile was deleted.");
             return;
         }
-
         if (data.startsWith("wizard:")) {
-            answerCallback(callbackQuery, null);
-            handleWizardCallback(callbackQuery.getMessage().getChatId(), session, account, data);
+            handleWizardCallback(chatId, session, account, data);
             return;
         }
-
         if (data.startsWith("media:")) {
-            answerCallback(callbackQuery, null);
-            handleProfileMediaCallback(callbackQuery.getMessage().getChatId(), session, account, data);
+            handleProfileMediaCallback(chatId, session, account, data);
             return;
         }
-
         if (data.startsWith("browse:")) {
-            handleBrowseCallback(callbackQuery, session, account, data);
+            handleBrowseAction(chatId, session, account, data);
             return;
         }
-
         if (data.startsWith("likes:")) {
-            handleLikesCallback(callbackQuery, session, account, data);
+            handleLikesAction(chatId, session, account, data);
             return;
         }
-
         if (data.startsWith("report:")) {
-            answerCallback(callbackQuery, null);
-            handleReportCallback(callbackQuery.getMessage().getChatId(), session, account, data);
+            handleReportCallback(chatId, session, account, data);
             return;
         }
-
         if (data.startsWith("sub:buy:")) {
-            answerCallback(callbackQuery, null);
             int days = Integer.parseInt(data.substring("sub:buy:".length()));
-            sendSubscriptionInvoice(callbackQuery.getMessage().getChatId(), session, days);
+            sendSubscriptionInvoice(chatId, session, days);
             return;
         }
-
         if (data.startsWith("mod:")) {
-            answerCallback(callbackQuery, null);
-            handleModerationCallback(callbackQuery.getMessage().getChatId(), session, account, data);
+            handleModerationCallback(chatId, session, account, data);
         }
     }
 
@@ -1046,12 +1046,10 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         }
     }
 
-    private void handleBrowseCallback(CallbackQuery callbackQuery, UserSession session, UserAccount account, String data) {
-        long chatId = callbackQuery.getMessage().getChatId();
+    private void handleBrowseAction(long chatId, UserSession session, UserAccount account, String data) {
         Long currentProfileId = session.getCurrentBrowseProfileId();
         switch (data) {
             case "browse:like" -> {
-                answerCallback(callbackQuery, "Liked");
                 if (currentProfileId == null) {
                     openSearch(chatId, session, account, false);
                     return;
@@ -1063,15 +1061,12 @@ public class VideoCharterBot extends TelegramLongPollingBot {
                 showNextBrowseCandidate(chatId, session, account, true);
             }
             case "browse:skip" -> {
-                answerCallback(callbackQuery, "Skipped");
                 showNextBrowseCandidate(chatId, session, account, true);
             }
             case "browse:back" -> {
                 if (session.getBrowseHistory().isEmpty()) {
-                    answerCallback(callbackQuery, "No previous profile.");
                     return;
                 }
-                answerCallback(callbackQuery, null);
                 Long previousId = session.getBrowseHistory().pop();
                 UserProfile previous = profileService.getProfile(previousId);
                 if (previous == null) {
@@ -1081,7 +1076,6 @@ public class VideoCharterBot extends TelegramLongPollingBot {
                 showBrowseProfile(chatId, session, previous, false);
             }
             case "browse:report" -> {
-                answerCallback(callbackQuery, null);
                 if (currentProfileId == null) {
                     openSearch(chatId, session, account, false);
                     return;
@@ -1092,7 +1086,6 @@ public class VideoCharterBot extends TelegramLongPollingBot {
                 renderReportReason(chatId, session);
             }
             case "browse:continueAd" -> {
-                answerCallback(callbackQuery, null);
                 Long pending = session.getPendingProfileAfterAd();
                 if (pending == null) {
                     showNextBrowseCandidate(chatId, session, account, false);
@@ -1106,31 +1099,29 @@ public class VideoCharterBot extends TelegramLongPollingBot {
                 }
                 showBrowseProfile(chatId, session, profile, true);
             }
-            default -> answerCallback(callbackQuery, null);
+            default -> {
+            }
         }
     }
 
-    private void handleLikesCallback(CallbackQuery callbackQuery, UserSession session, UserAccount account, String data) {
-        long chatId = callbackQuery.getMessage().getChatId();
+    private void handleLikesAction(long chatId, UserSession session, UserAccount account, String data) {
         Long currentProfileId = session.getCurrentBrowseProfileId();
         if (currentProfileId == null) {
-            answerCallback(callbackQuery, null);
             openLikes(chatId, session, account);
             return;
         }
         switch (data) {
             case "likes:back" -> {
-                answerCallback(callbackQuery, "Matched");
                 profileService.likeProfile(account.getUserId(), currentProfileId);
                 sendMatchNotifications(account.getUserId(), currentProfileId);
                 openLikes(chatId, session, account);
             }
             case "likes:pass" -> {
-                answerCallback(callbackQuery, "Passed");
                 profileService.dismissIncomingLike(account.getUserId(), currentProfileId);
                 openLikes(chatId, session, account);
             }
-            default -> answerCallback(callbackQuery, null);
+            default -> {
+            }
         }
     }
 
@@ -1502,6 +1493,9 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         AdsgramAd ad = maybeAd.get();
         StringBuilder builder = new StringBuilder();
         builder.append(ad.getTextHtml()).append("\n\n");
+        if (isHttpUrl(ad.getClickUrl())) {
+            builder.append("<a href=\"").append(Htmls.escape(ad.getClickUrl())).append("\">Open offer</a>\n\n");
+        }
         builder.append("Viewed today: <b>").append(decision.viewedToday()).append("</b>\n");
         builder.append("Free limit today: <b>").append(decision.freeLimit()).append("</b>\n");
         builder.append("You can continue to the next profile at any time.");
@@ -1524,13 +1518,18 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         }
 
         AdsgramAd ad = maybeAd.get();
-        String text = "<b>📣 Test ad</b>\n\n" + ad.getTextHtml() + "\n\nThis preview was requested manually with <code>/test</code>.";
+        StringBuilder text = new StringBuilder("<b>📣 Test ad</b>\n\n");
+        text.append(ad.getTextHtml());
+        if (isHttpUrl(ad.getClickUrl())) {
+            text.append("\n\n<a href=\"").append(Htmls.escape(ad.getClickUrl())).append("\">Open offer</a>");
+        }
+        text.append("\n\nThis preview was requested manually with <code>/test</code>.");
         InlineKeyboardMarkup keyboard = keyboardAdsgramTest(ad);
         if (isHttpUrl(ad.getImageUrl())) {
-            renderProtectedPhotoScreen(chatId, session, ad.getImageUrl(), trimCaption(text), keyboard);
+            renderProtectedPhotoScreen(chatId, session, ad.getImageUrl(), trimCaption(text.toString()), keyboard);
             return;
         }
-        renderProtectedTextScreen(chatId, session, text, keyboard);
+        renderProtectedTextScreen(chatId, session, text.toString(), keyboard);
     }
 
     private void openDebugBrowse(long chatId, UserSession session, UserAccount account) {
@@ -1875,17 +1874,10 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         builder.append("You and ").append(Htmls.escape(counterpart.getName())).append(" liked each other.\n");
         builder.append("Tap the profile mention below to open a chat.\n");
         builder.append("<a href=\"tg://user?id=").append(counterpart.getUserId()).append("\">Open ").append(Htmls.escape(counterpart.getName())).append("</a>");
-        InlineKeyboardMarkup keyboard = counterpart.getUsername() == null || counterpart.getUsername().isBlank()
-                ? keyboardHomeOnly()
-                : uiFactory.keyboard(List.of(
-                List.of(ButtonSpec.url("Open @" + counterpart.getUsername(), "https://t.me/" + counterpart.getUsername())),
-                List.of(ButtonSpec.callback("Home", "home"))
-        ));
         SendMessage message = new SendMessage();
         message.setChatId(recipientUserId);
         message.setParseMode(ParseMode.HTML);
         message.setText(builder.toString());
-        message.setReplyMarkup(keyboard);
         try {
             execute(message);
         } catch (TelegramApiException ignored) {
@@ -1899,6 +1891,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
 
     private void renderWizardPrompt(long chatId, UserSession session, String text, ReplyKeyboardMarkup keyboard) {
         Integer previousPromptMessageId = session.getWizardPromptMessageId();
+        session.getCurrentButtonActions().clear();
 
         SendMessage message = new SendMessage();
         message.setChatId(chatId);
@@ -1948,6 +1941,35 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         return replyKeyboard(rows);
     }
 
+    private ReplyKeyboardMarkup replyKeyboardFromInline(UserSession session, InlineKeyboardMarkup keyboard) {
+        session.getCurrentButtonActions().clear();
+        if (keyboard == null || keyboard.getKeyboard() == null || keyboard.getKeyboard().isEmpty()) {
+            return null;
+        }
+
+        List<List<String>> rows = new ArrayList<>();
+        Map<String, String> actions = new LinkedHashMap<>();
+        for (List<org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton> inlineRow : keyboard.getKeyboard()) {
+            List<String> row = new ArrayList<>();
+            for (org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton button : inlineRow) {
+                if (button == null || button.getText() == null || button.getText().isBlank()) {
+                    continue;
+                }
+                if (button.getCallbackData() == null || "noop".equals(button.getCallbackData())) {
+                    continue;
+                }
+                row.add(button.getText());
+                actions.put(button.getText(), button.getCallbackData());
+            }
+            if (!row.isEmpty()) {
+                rows.add(row);
+            }
+        }
+
+        session.getCurrentButtonActions().putAll(actions);
+        return rows.isEmpty() ? null : replyKeyboard(rows);
+    }
+
     private void clearWizardUi(long chatId, UserSession session, boolean removeKeyboard) {
         Integer wizardPromptMessageId = session.getWizardPromptMessageId();
         session.setWizardPromptMessageId(null);
@@ -1984,47 +2006,27 @@ public class VideoCharterBot extends TelegramLongPollingBot {
     private void renderTextScreen(long chatId, UserSession session, String text, InlineKeyboardMarkup keyboard) {
         clearSubscriptionInvoiceMessage(chatId, session);
         Integer previousMessageId = session.getMenuMessageId();
-        Integer targetMessageId = previousMessageId;
-
-        if (targetMessageId != null && session.getScreenKind() != UserSession.ScreenKind.TEXT) {
-            deleteMessageSilently(chatId, targetMessageId);
-            targetMessageId = null;
+        if (previousMessageId != null) {
+            deleteMessageSilently(chatId, previousMessageId);
             session.setMenuMessageId(null);
-        }
-
-        if (targetMessageId != null) {
-            EditMessageText edit = new EditMessageText();
-            edit.setChatId(chatId);
-            edit.setMessageId(targetMessageId);
-            edit.setText(text);
-            edit.setParseMode(ParseMode.HTML);
-            edit.setReplyMarkup(keyboard);
-            try {
-                execute(edit);
-                session.setMenuMessageId(targetMessageId);
-                session.setScreenKind(UserSession.ScreenKind.TEXT);
-                return;
-            } catch (TelegramApiException exception) {
-                if (isMessageNotModified(exception)) {
-                    session.setMenuMessageId(targetMessageId);
-                    session.setScreenKind(UserSession.ScreenKind.TEXT);
-                    return;
-                }
-            }
         }
 
         SendMessage message = new SendMessage();
         message.setChatId(chatId);
         message.setParseMode(ParseMode.HTML);
         message.setText(text);
-        message.setReplyMarkup(keyboard);
+        ReplyKeyboardMarkup replyKeyboard = replyKeyboardFromInline(session, keyboard);
+        if (replyKeyboard != null) {
+            message.setReplyMarkup(replyKeyboard);
+        } else {
+            ReplyKeyboardRemove remove = new ReplyKeyboardRemove();
+            remove.setRemoveKeyboard(true);
+            message.setReplyMarkup(remove);
+        }
         try {
             Message sent = execute(message);
             session.setMenuMessageId(sent.getMessageId());
             session.setScreenKind(UserSession.ScreenKind.TEXT);
-            if (previousMessageId != null && !previousMessageId.equals(sent.getMessageId())) {
-                deleteMessageSilently(chatId, previousMessageId);
-            }
         } catch (TelegramApiException exception) {
             throw new IllegalStateException("Unable to render menu", exception);
         }
@@ -2035,13 +2037,21 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         Integer previousMessageId = session.getMenuMessageId();
         if (previousMessageId != null) {
             deleteMessageSilently(chatId, previousMessageId);
+            session.setMenuMessageId(null);
         }
 
         SendMessage message = new SendMessage();
         message.setChatId(chatId);
         message.setParseMode(ParseMode.HTML);
         message.setText(text);
-        message.setReplyMarkup(keyboard);
+        ReplyKeyboardMarkup replyKeyboard = replyKeyboardFromInline(session, keyboard);
+        if (replyKeyboard != null) {
+            message.setReplyMarkup(replyKeyboard);
+        } else {
+            ReplyKeyboardRemove remove = new ReplyKeyboardRemove();
+            remove.setRemoveKeyboard(true);
+            message.setReplyMarkup(remove);
+        }
         message.setProtectContent(true);
         try {
             Message sent = execute(message);
@@ -2061,19 +2071,21 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         Integer previousMessageId = session.getMenuMessageId();
         if (previousMessageId != null) {
             deleteMessageSilently(chatId, previousMessageId);
+            session.setMenuMessageId(null);
         }
+        cleanupCardMessages(chatId, session);
 
         SendPhoto sendPhoto = new SendPhoto();
         sendPhoto.setChatId(chatId);
         sendPhoto.setPhoto(new InputFile(mediaUrl));
         sendPhoto.setCaption(caption);
         sendPhoto.setParseMode(ParseMode.HTML);
-        sendPhoto.setReplyMarkup(keyboard);
         sendPhoto.setProtectContent(true);
         try {
             Message sent = execute(sendPhoto);
-            session.setMenuMessageId(sent.getMessageId());
-            session.setScreenKind(UserSession.ScreenKind.PHOTO);
+            session.getActiveCardMessageIds().add(sent.getMessageId());
+            session.setScreenKind(UserSession.ScreenKind.TEXT);
+            renderTextScreen(chatId, session, "<b>Use the buttons below.</b>", keyboard);
         } catch (TelegramApiException exception) {
             renderProtectedTextScreen(chatId, session, caption, keyboard);
         }
@@ -2153,6 +2165,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
                     deleteMessageSilently(chatId, previousMessageId);
                     session.setMenuMessageId(null);
                 }
+                session.getCurrentButtonActions().clear();
                 session.setScreenKind(UserSession.ScreenKind.TEXT);
             }
         } catch (TelegramApiException exception) {
@@ -2170,35 +2183,6 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             case DRAFT_PREVIEW -> "<b>Profile preview</b>";
             case NONE -> "<b>Choose an action below.</b>";
         };
-    }
-
-    private InlineKeyboardMarkup withMediaNavigation(InlineKeyboardMarkup keyboard, int mediaIndex, int mediaCount) {
-        if (mediaCount <= 1) {
-            return keyboard;
-        }
-
-        List<List<org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton>> rows = new ArrayList<>();
-        List<org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton> navRow = new ArrayList<>();
-        navRow.add(inlineCallbackButton("◀", "media:prev"));
-        navRow.add(inlineCallbackButton((mediaIndex + 1) + "/" + mediaCount, "noop"));
-        navRow.add(inlineCallbackButton("▶", "media:next"));
-        rows.add(navRow);
-
-        if (keyboard != null && keyboard.getKeyboard() != null) {
-            rows.addAll(keyboard.getKeyboard());
-        }
-
-        InlineKeyboardMarkup markup = new InlineKeyboardMarkup();
-        markup.setKeyboard(rows);
-        return markup;
-    }
-
-    private org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton inlineCallbackButton(String text, String data) {
-        org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton button =
-                new org.telegram.telegrambots.meta.api.objects.replykeyboard.buttons.InlineKeyboardButton();
-        button.setText(text);
-        button.setCallbackData(data);
-        return button;
     }
 
     private InputMedia buildInputMedia(MediaAttachment attachment, String caption) {
@@ -2297,13 +2281,6 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         }
     }
 
-    private boolean isMessageNotModified(TelegramApiException exception) {
-        if (exception == null || exception.getMessage() == null) {
-            return false;
-        }
-        return exception.getMessage().toLowerCase().contains("message is not modified");
-    }
-
     private boolean isHttpUrl(String value) {
         if (value == null) {
             return false;
@@ -2346,14 +2323,6 @@ public class VideoCharterBot extends TelegramLongPollingBot {
                         || normalizedText.equalsIgnoreCase(country.name())
                         || normalizedText.equalsIgnoreCase(country.flag() + " " + country.name()))
                 .findFirst();
-    }
-
-    private String normalizeAdButtonLabel(String label, String fallback) {
-        if (label == null || label.isBlank()) {
-            return fallback;
-        }
-        String trimmed = label.trim();
-        return trimmed.length() <= 32 ? trimmed : trimmed.substring(0, 29) + "...";
     }
 
     private UserAccount resolveAccountForChat(long chatId) {
@@ -2547,9 +2516,6 @@ public class VideoCharterBot extends TelegramLongPollingBot {
 
     private InlineKeyboardMarkup keyboardAdsgramInterstitial(AdsgramAd ad) {
         List<List<ButtonSpec>> rows = new ArrayList<>();
-        if (isHttpUrl(ad.getClickUrl())) {
-            rows.add(List.of(ButtonSpec.url(normalizeAdButtonLabel(ad.getButtonName(), "🔗 Open offer"), ad.getClickUrl())));
-        }
         rows.add(List.of(ButtonSpec.callback("▶️ Continue", "browse:continueAd")));
         rows.add(List.of(ButtonSpec.callback("💎 Disable ads", "menu:ads"), ButtonSpec.callback("🏠 Home", "home")));
         return uiFactory.keyboard(rows);
@@ -2557,9 +2523,6 @@ public class VideoCharterBot extends TelegramLongPollingBot {
 
     private InlineKeyboardMarkup keyboardAdsgramTest(AdsgramAd ad) {
         List<List<ButtonSpec>> rows = new ArrayList<>();
-        if (isHttpUrl(ad.getClickUrl())) {
-            rows.add(List.of(ButtonSpec.url(normalizeAdButtonLabel(ad.getButtonName(), "🔗 Open offer"), ad.getClickUrl())));
-        }
         rows.add(List.of(ButtonSpec.callback("🏠 Home", "home")));
         return uiFactory.keyboard(rows);
     }

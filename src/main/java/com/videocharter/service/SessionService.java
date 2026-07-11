@@ -7,6 +7,8 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.HashSet;
 import java.util.List;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -68,6 +70,7 @@ public class SessionService {
         private Integer pendingSubscriptionPriceDays;
         private Integer subscriptionInvoiceMessageId;
         private Integer wizardPromptMessageId;
+        private final Map<String, String> currentButtonActions = new LinkedHashMap<>();
 
         public Integer getMenuMessageId() {
             return menuMessageId;
@@ -247,6 +250,10 @@ public class SessionService {
 
         public void setWizardPromptMessageId(Integer wizardPromptMessageId) {
             this.wizardPromptMessageId = wizardPromptMessageId;
+        }
+
+        public Map<String, String> getCurrentButtonActions() {
+            return currentButtonActions;
         }
 
         public void resetReportDraft() {
