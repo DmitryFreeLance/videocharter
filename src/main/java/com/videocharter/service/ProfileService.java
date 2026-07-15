@@ -33,6 +33,9 @@ public class ProfileService {
     public record SubscriptionView(UserAccount account, UserProfile profile) {
     }
 
+    public record BanStatus(boolean active, LocalDate until) {
+    }
+
     private final StateStore stateStore;
     private final CountryCatalog countryCatalog;
     private final DailyQuotaService dailyQuotaService;
@@ -322,6 +325,7 @@ public class ProfileService {
                     return fresh;
                 });
                 account.setBanned(true);
+                account.setBannedUntil(LocalDate.now().plusDays(30));
                 deleteProfileInsideState(state, report.getTargetUserId());
             }
             return null;
@@ -348,6 +352,18 @@ public class ProfileService {
                         .comparing((UserAccount account) -> account.getFirstName(), Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER))
                         .thenComparingLong(UserAccount::getUserId))
                 .toList());
+    }
+
+    public List<UserAccount> getBannedUsers(LocalDate today) {
+        return stateStore.mutate(state -> {
+            state.getUsers().values().forEach(account -> normalizeBanState(account, today));
+            return state.getUsers().values().stream()
+                    .filter(UserAccount::isBanned)
+                    .sorted(Comparator
+                            .comparing(UserAccount::getBannedUntil, Comparator.nullsLast(Comparator.naturalOrder()))
+                            .thenComparingLong(UserAccount::getUserId))
+                    .toList();
+        });
     }
 
     public void setModerator(long userId, boolean moderator) {
@@ -389,7 +405,29 @@ public class ProfileService {
     }
 
     public boolean isBanned(long userId) {
-        return stateStore.read(state -> isBanned(state, userId));
+        return getBanStatus(userId, LocalDate.now()).active();
+    }
+
+    public BanStatus getBanStatus(long userId, LocalDate today) {
+        return stateStore.mutate(state -> {
+            UserAccount account = state.getUsers().get(userId);
+            if (account == null) {
+                return new BanStatus(false, null);
+            }
+            normalizeBanState(account, today);
+            return new BanStatus(account.isBanned(), account.getBannedUntil());
+        });
+    }
+
+    public void unbanUser(long userId) {
+        stateStore.mutate(state -> {
+            UserAccount account = state.getUsers().get(userId);
+            if (account != null) {
+                account.setBanned(false);
+                account.setBannedUntil(null);
+            }
+            return null;
+        });
     }
 
     public boolean isMatched(long firstUserId, long secondUserId) {
@@ -426,7 +464,29 @@ public class ProfileService {
 
     private boolean isBanned(AppState state, long userId) {
         UserAccount account = state.getUsers().get(userId);
-        return account != null && account.isBanned();
+        if (account == null) {
+            return false;
+        }
+        normalizeBanState(account, LocalDate.now());
+        return account.isBanned();
+    }
+
+    private void normalizeBanState(UserAccount account, LocalDate today) {
+        if (account == null) {
+            return;
+        }
+        if (!account.isBanned()) {
+            account.setBannedUntil(null);
+            return;
+        }
+        if (account.getBannedUntil() == null) {
+            account.setBannedUntil(today.plusDays(30));
+            return;
+        }
+        if (!today.isBefore(account.getBannedUntil())) {
+            account.setBanned(false);
+            account.setBannedUntil(null);
+        }
     }
 
     private void deleteProfileInsideState(AppState state, long userId) {

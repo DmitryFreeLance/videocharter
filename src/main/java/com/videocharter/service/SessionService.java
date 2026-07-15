@@ -69,6 +69,7 @@ public class SessionService {
         private int moderationIndex;
         private int subscriptionsPage;
         private int adminUsersPage;
+        private int bannedUsersPage;
         private Integer pendingSubscriptionPriceDays;
         private Integer subscriptionInvoiceMessageId;
         private Integer wizardPromptMessageId;
@@ -236,6 +237,14 @@ public class SessionService {
 
         public void setAdminUsersPage(int adminUsersPage) {
             this.adminUsersPage = adminUsersPage;
+        }
+
+        public int getBannedUsersPage() {
+            return bannedUsersPage;
+        }
+
+        public void setBannedUsersPage(int bannedUsersPage) {
+            this.bannedUsersPage = bannedUsersPage;
         }
 
         public Integer getPendingSubscriptionPriceDays() {

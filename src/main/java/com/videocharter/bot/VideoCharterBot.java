@@ -29,9 +29,11 @@ import com.videocharter.ui.UiFactory;
 import com.videocharter.ui.UiFactory.ButtonSpec;
 import com.videocharter.util.Htmls;
 import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -72,6 +74,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
     private static final int COUNTRIES_PER_PAGE = 10;
     private static final int SUBSCRIPTIONS_PER_PAGE = 6;
     private static final int ADMIN_USERS_PER_PAGE = 8;
+    private static final DateTimeFormatter DATE_FORMATTER = DateTimeFormatter.ofPattern("dd MMM uuuu", Locale.ENGLISH);
 
     private final BotConfig config;
     private final ProfileService profileService;
@@ -151,7 +154,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
 
         if (profileService.isBanned(user.getId())) {
             cleanupCardMessages(message.getChatId(), session);
-            renderMenu(message.getChatId(), session, "<b>Access blocked</b>\nYour account is blocked by moderation.", keyboardHomeOnly());
+            renderMenu(message.getChatId(), session, blockedByModerationText(user.getId()), keyboardHomeOnly());
             return;
         }
 
@@ -722,11 +725,12 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         if (action == null) {
             return false;
         }
-        deleteIncomingMessage(message);
         if (limiterService.isTooFast(account.getUserId())) {
+            deleteIncomingMessage(message);
             return true;
         }
         dispatchAction(message.getChatId(), session, account, action);
+        deleteIncomingMessage(message);
         return true;
     }
 
@@ -738,7 +742,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         if (profileService.isBanned(user.getId())) {
             answerCallback(callbackQuery, "Blocked");
             cleanupCardMessages(callbackQuery.getMessage().getChatId(), session);
-            renderMenu(callbackQuery.getMessage().getChatId(), session, "<b>Access blocked</b>\nYour account is blocked by moderation.", keyboardHomeOnly());
+            renderMenu(callbackQuery.getMessage().getChatId(), session, blockedByModerationText(user.getId()), keyboardHomeOnly());
             return;
         }
         if (limiterService.isTooFast(user.getId())) {
@@ -1264,6 +1268,10 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             openModeratorManagement(chatId, session, account, null);
             return;
         }
+        if ("mod:bans".equals(data)) {
+            openBannedUsers(chatId, session, account, 0, null);
+            return;
+        }
         if ("mod:add".equals(data)) {
             session.setExpectedInput(ExpectedInput.ADD_MODERATOR_ID);
             renderMenu(chatId, session, "<b>🛡 Add moderator</b>\nSend a numeric Telegram user ID.", keyboardModeratorInput(true));
@@ -1296,6 +1304,17 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             long userId = Long.parseLong(data.substring("mod:addAdmin:pick:".length()));
             profileService.setAdmin(userId, true);
             openAdminUserPicker(chatId, session, account, session.getAdminUsersPage(), "Admin added: <code>" + userId + "</code>");
+            return;
+        }
+        if (data.startsWith("mod:bans:page:")) {
+            int page = Integer.parseInt(data.substring("mod:bans:page:".length()));
+            openBannedUsers(chatId, session, account, page, null);
+            return;
+        }
+        if (data.startsWith("mod:unban:")) {
+            long userId = Long.parseLong(data.substring("mod:unban:".length()));
+            profileService.unbanUser(userId);
+            openBannedUsers(chatId, session, account, session.getBannedUsersPage(), "Ban removed: <code>" + userId + "</code>");
             return;
         }
         if (data.startsWith("mod:report:")) {
@@ -1899,6 +1918,60 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         renderMenu(chatId, session, builder.toString(), keyboardModeratorManagement());
     }
 
+    private void openBannedUsers(long chatId, UserSession session, UserAccount account, int page, String notice) {
+        if (!profileService.isAdmin(account.getUserId())) {
+            renderMenu(chatId, session, "<b>Access denied</b>\nOnly admins can manage bans.", keyboardModerationBack());
+            return;
+        }
+
+        List<UserAccount> bannedUsers = profileService.getBannedUsers(LocalDate.now());
+        if (bannedUsers.isEmpty()) {
+            renderMenu(
+                    chatId,
+                    session,
+                    (notice == null ? "" : notice + "\n\n") + "<b>⛔ Active bans</b>\nNo active bans right now.",
+                    keyboardBannedUsersEmpty()
+            );
+            return;
+        }
+
+        int totalPages = Math.max(1, (bannedUsers.size() + ADMIN_USERS_PER_PAGE - 1) / ADMIN_USERS_PER_PAGE);
+        int normalizedPage = Math.max(0, Math.min(page, totalPages - 1));
+        session.setBannedUsersPage(normalizedPage);
+
+        int fromIndex = normalizedPage * ADMIN_USERS_PER_PAGE;
+        int toIndex = Math.min(fromIndex + ADMIN_USERS_PER_PAGE, bannedUsers.size());
+
+        StringBuilder builder = new StringBuilder();
+        if (notice != null) {
+            builder.append(notice).append("\n\n");
+        }
+        builder.append("<b>⛔ Active bans</b>\n");
+        builder.append("Page <b>").append(normalizedPage + 1).append("/").append(totalPages).append("</b>\n\n");
+
+        for (UserAccount banned : bannedUsers.subList(fromIndex, toIndex)) {
+            builder.append("• <code>").append(banned.getUserId()).append("</code>");
+            if (banned.getFirstName() != null && !banned.getFirstName().isBlank()) {
+                builder.append(" — ").append(Htmls.escape(banned.getFirstName()));
+            }
+            if (banned.getUsername() != null && !banned.getUsername().isBlank()) {
+                builder.append(" (@").append(Htmls.escape(banned.getUsername())).append(")");
+            }
+            builder.append("\n");
+            if (banned.getBannedUntil() != null) {
+                builder.append("  Unban on: <b>").append(banned.getBannedUntil().format(DATE_FORMATTER)).append("</b>\n");
+            }
+            builder.append("\n");
+        }
+
+        renderMenu(
+                chatId,
+                session,
+                builder.toString().trim(),
+                keyboardBannedUsers(bannedUsers.subList(fromIndex, toIndex), normalizedPage, totalPages)
+        );
+    }
+
     private void openAdminUserPicker(long chatId, UserSession session, UserAccount account, int page, String notice) {
         if (!profileService.isAdmin(account.getUserId())) {
             openModerationHome(chatId, session, account, "Only admins can manage admins.");
@@ -2242,9 +2315,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         session.setCurrentScreenProfileUserId(profile.getUserId());
 
         if (media == null || media.isEmpty()) {
-            cleanupCardMessages(chatId, session);
-            session.setScreenKind(UserSession.ScreenKind.TEXT);
-            renderTextScreen(chatId, session, caption, keyboard);
+            renderAnchoredTextCard(chatId, session, keyboardAnchorText(context), caption, keyboard, false);
             return;
         }
 
@@ -2386,6 +2457,17 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         }
         final int maxCaptionLength = 1024;
         return value.length() <= maxCaptionLength ? value : value.substring(0, maxCaptionLength - 1) + "…";
+    }
+
+    private String blockedByModerationText(long userId) {
+        ProfileService.BanStatus status = profileService.getBanStatus(userId, LocalDate.now());
+        StringBuilder builder = new StringBuilder("<b>Access blocked</b>\nYour account is blocked by moderation.");
+        if (status.until() != null) {
+            builder.append("\n\nBan will be lifted on <b>")
+                    .append(status.until().format(DATE_FORMATTER))
+                    .append("</b>.");
+        }
+        return builder.toString();
     }
 
     private void cleanupCardMessages(long chatId, UserSession session) {
@@ -2719,6 +2801,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         if (admin) {
             rows.add(List.of(ButtonSpec.callback("📊 Overview", "mod:stats"), ButtonSpec.callback("💳 Subscriptions", "mod:subscriptions")));
             rows.add(List.of(ButtonSpec.callback("💸 Pricing", "mod:pricing"), ButtonSpec.callback("🧑‍⚖️ Team", "mod:mods")));
+            rows.add(List.of(ButtonSpec.callback("⛔ Active bans", "mod:bans")));
         }
         rows.add(List.of(ButtonSpec.callback("🏠 Home", "home")));
         return uiFactory.keyboard(rows);
@@ -2755,6 +2838,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         return uiFactory.keyboard(List.of(
                 List.of(ButtonSpec.callback("👑 Add admin", "mod:addAdmin"), ButtonSpec.callback("👑 Remove admin", "mod:removeAdmin")),
                 List.of(ButtonSpec.callback("🛡 Add moderator", "mod:add"), ButtonSpec.callback("🛡 Remove moderator", "mod:remove")),
+                List.of(ButtonSpec.callback("⛔ Active bans", "mod:bans")),
                 List.of(ButtonSpec.callback("⬅️ Back", "mod:home"), ButtonSpec.callback("🏠 Home", "home"))
         ));
     }
@@ -2769,7 +2853,8 @@ public class VideoCharterBot extends TelegramLongPollingBot {
     private InlineKeyboardMarkup keyboardAdminOverview() {
         return uiFactory.keyboard(List.of(
                 List.of(ButtonSpec.callback("💸 Pricing", "mod:pricing"), ButtonSpec.callback("💳 Subscriptions", "mod:subscriptions")),
-                List.of(ButtonSpec.callback("🧑‍⚖️ Team", "mod:mods"), ButtonSpec.callback("⬅️ Back", "mod:home")),
+                List.of(ButtonSpec.callback("🧑‍⚖️ Team", "mod:mods"), ButtonSpec.callback("⛔ Active bans", "mod:bans")),
+                List.of(ButtonSpec.callback("⬅️ Back", "mod:home")),
                 List.of(ButtonSpec.callback("🏠 Home", "home"))
         ));
     }
@@ -2801,6 +2886,36 @@ public class VideoCharterBot extends TelegramLongPollingBot {
     private InlineKeyboardMarkup keyboardAdminSubscriptionsEmpty() {
         return uiFactory.keyboard(List.of(
                 List.of(ButtonSpec.callback("📊 Overview", "mod:stats"), ButtonSpec.callback("⬅️ Back", "mod:home")),
+                List.of(ButtonSpec.callback("🏠 Home", "home"))
+        ));
+    }
+
+    private InlineKeyboardMarkup keyboardBannedUsers(List<UserAccount> users, int page, int totalPages) {
+        List<List<ButtonSpec>> rows = new ArrayList<>();
+        for (UserAccount user : users) {
+            String label = "✅ Unban " + user.getUserId();
+            if (user.getFirstName() != null && !user.getFirstName().isBlank()) {
+                label += " — " + user.getFirstName();
+            }
+            rows.add(List.of(ButtonSpec.callback(label, "mod:unban:" + user.getUserId())));
+        }
+        List<ButtonSpec> pager = new ArrayList<>();
+        if (page > 0) {
+            pager.add(ButtonSpec.callback("← Prev", "mod:bans:page:" + (page - 1)));
+        }
+        pager.add(ButtonSpec.callback((page + 1) + "/" + totalPages, "noop"));
+        if (page + 1 < totalPages) {
+            pager.add(ButtonSpec.callback("Next →", "mod:bans:page:" + (page + 1)));
+        }
+        rows.add(pager);
+        rows.add(List.of(ButtonSpec.callback("🧑‍⚖️ Team", "mod:mods"), ButtonSpec.callback("⬅️ Back", "mod:home")));
+        rows.add(List.of(ButtonSpec.callback("🏠 Home", "home")));
+        return uiFactory.keyboard(rows);
+    }
+
+    private InlineKeyboardMarkup keyboardBannedUsersEmpty() {
+        return uiFactory.keyboard(List.of(
+                List.of(ButtonSpec.callback("🧑‍⚖️ Team", "mod:mods"), ButtonSpec.callback("⬅️ Back", "mod:home")),
                 List.of(ButtonSpec.callback("🏠 Home", "home"))
         ));
     }

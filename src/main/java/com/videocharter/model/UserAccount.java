@@ -10,6 +10,7 @@ public class UserAccount {
     private boolean admin;
     private boolean moderator;
     private boolean banned;
+    private LocalDate bannedUntil;
     private LocalDate subscriptionUntil;
     private LocalDate lastViewDate;
     private int viewsToday;
@@ -60,6 +61,14 @@ public class UserAccount {
 
     public void setBanned(boolean banned) {
         this.banned = banned;
+    }
+
+    public LocalDate getBannedUntil() {
+        return bannedUntil;
+    }
+
+    public void setBannedUntil(LocalDate bannedUntil) {
+        this.bannedUntil = bannedUntil;
     }
 
     public LocalDate getSubscriptionUntil() {
