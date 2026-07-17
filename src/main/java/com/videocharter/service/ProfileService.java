@@ -332,6 +332,25 @@ public class ProfileService {
         });
     }
 
+    public Long resetProfileAfterModeration(long reportId, long moderatorId) {
+        return stateStore.mutate(state -> {
+            ReportRecord report = state.getReports().stream()
+                    .filter(candidate -> candidate.getId() == reportId)
+                    .findFirst()
+                    .orElse(null);
+            if (report == null) {
+                return null;
+            }
+
+            report.setStatus(ReportStatus.APPROVED);
+            report.setModeratorId(moderatorId);
+            report.setDecisionNote("Profile reset requested");
+            long targetUserId = report.getTargetUserId();
+            deleteProfileInsideState(state, targetUserId);
+            return targetUserId;
+        });
+    }
+
     public List<UserAccount> getModerators() {
         return stateStore.read(state -> state.getUsers().values().stream()
                 .filter(UserAccount::isModerator)

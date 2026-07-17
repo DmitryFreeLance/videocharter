@@ -771,6 +771,10 @@ public class VideoCharterBot extends TelegramLongPollingBot {
             startWizard(chatId, session, null);
             return;
         }
+        if ("reset:accept".equals(data)) {
+            startWizard(chatId, session, null);
+            return;
+        }
         if ("menu:profile".equals(data)) {
             openMyProfile(chatId, session, account);
             return;
@@ -1332,6 +1336,15 @@ public class VideoCharterBot extends TelegramLongPollingBot {
                 boolean approved = !"reject".equals(parts[2]);
                 boolean ban = "ban".equals(parts[2]);
                 profileService.resolveReport(reportId, account.getUserId(), approved, ban);
+                openModerationReport(chatId, session, session.getModerationIndex());
+                return;
+            }
+            if ("reset".equals(parts[2])) {
+                long reportId = Long.parseLong(parts[3]);
+                Long targetUserId = profileService.resetProfileAfterModeration(reportId, account.getUserId());
+                if (targetUserId != null) {
+                    sendProfileResetNotice(targetUserId);
+                }
                 openModerationReport(chatId, session, session.getModerationIndex());
             }
             return;
@@ -2470,6 +2483,20 @@ public class VideoCharterBot extends TelegramLongPollingBot {
         return builder.toString();
     }
 
+    private void sendProfileResetNotice(long userId) {
+        SendMessage message = new SendMessage();
+        message.setChatId(userId);
+        message.setParseMode(ParseMode.HTML);
+        message.setText("Your profile was removed because it contained nude photos. Please create a new one ☺️");
+        message.setReplyMarkup(uiFactory.keyboard(List.of(
+                List.of(ButtonSpec.callback("✅ Accept", "reset:accept"))
+        )));
+        try {
+            execute(message);
+        } catch (TelegramApiException ignored) {
+        }
+    }
+
     private void cleanupCardMessages(long chatId, UserSession session) {
         for (Integer messageId : new ArrayList<>(session.getActiveCardMessageIds())) {
             deleteMessageSilently(chatId, messageId);
@@ -2820,7 +2847,7 @@ public class VideoCharterBot extends TelegramLongPollingBot {
                 ButtonSpec.callback("✅ Approve", "mod:report:approve:" + reportId),
                 ButtonSpec.callback("❌ Reject", "mod:report:reject:" + reportId)
         ));
-        rows.add(List.of(ButtonSpec.callback("⛔ Ban target", "mod:report:ban:" + reportId)));
+        rows.add(List.of(ButtonSpec.callback("🔄 Reset profile", "mod:report:reset:" + reportId)));
         List<ButtonSpec> pager = new ArrayList<>();
         if (index > 0) {
             pager.add(ButtonSpec.callback("← Prev", "mod:report:prev"));
